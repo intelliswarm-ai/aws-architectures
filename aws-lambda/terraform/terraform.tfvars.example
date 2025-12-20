@@ -1,5 +1,5 @@
 # AWS Configuration
-aws_region  = "us-east-1"
+aws_region  = "eu-central-2"  # EU Zurich
 environment = "dev"
 
 # Project Configuration

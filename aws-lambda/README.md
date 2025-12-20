@@ -129,7 +129,7 @@ After deployment, check:
 Key variables in `terraform.tfvars`:
 
 ```hcl
-aws_region               = "us-east-1"
+aws_region               = "eu-central-2"  # EU Zurich
 environment              = "dev"
 task_generation_schedule = "rate(5 minutes)"
 notification_email       = "admin@example.com"

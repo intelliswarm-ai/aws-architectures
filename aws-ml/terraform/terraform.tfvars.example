@@ -1,0 +1,44 @@
+# =============================================================================
+# AWS ML Platform - Example Terraform Variables
+# =============================================================================
+# Copy this file to terraform.tfvars and customize the values.
+
+# General Configuration
+aws_region   = "eu-central-2"
+environment  = "dev"
+project_name = "ml-platform"
+
+# Lambda Configuration
+lambda_runtime            = "python3.12"
+lambda_memory_size        = 512
+lambda_timeout            = 60
+lambda_log_retention_days = 14
+lambda_package_path       = "../dist/lambda.zip"
+
+# S3 Buckets (leave empty for auto-generated names)
+raw_bucket_name       = ""
+processed_bucket_name = ""
+model_bucket_name     = ""
+
+# DynamoDB
+dynamodb_billing_mode = "PAY_PER_REQUEST"
+
+# SageMaker
+sagemaker_endpoint_instance_type  = "ml.m5.large"
+sagemaker_endpoint_instance_count = 1
+training_instance_type            = "ml.m5.xlarge"
+create_sagemaker_endpoint         = false  # Set to true to create endpoint
+
+# Bedrock
+bedrock_model_id   = "anthropic.claude-3-sonnet-20240229-v1:0"
+bedrock_max_tokens = 4096
+
+# Notifications
+notification_email         = ""  # Set your email for notifications
+enable_email_notifications = false
+
+# Feature Flags
+enable_pii_detection  = true
+enable_moderation     = true
+enable_summarization  = true
+enable_qa_generation  = true

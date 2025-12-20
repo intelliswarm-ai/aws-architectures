@@ -1,0 +1,19 @@
+# AWS SDK
+boto3>=1.35.0
+botocore>=1.35.0
+
+# AWS Lambda Powertools
+aws-lambda-powertools[all]>=3.3.0
+
+# Data validation
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# JSON handling
+orjson>=3.10.0
+
+# HTTP client (for Bedrock/API calls)
+httpx>=0.28.0
+
+# Type hints
+typing-extensions>=4.12.0
