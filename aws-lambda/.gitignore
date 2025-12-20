@@ -1,0 +1,126 @@
+# =============================================================================
+# Java / Maven
+# =============================================================================
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**
+!**/src/test/**
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+.factorypath
+*.swp
+*.swo
+*~
+.vscode/
+
+# =============================================================================
+# Terraform
+# =============================================================================
+# Local .terraform directories
+**/.terraform/*
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Exclude all .tfvars files, which are likely to contain sensitive data
+*.tfvars
+*.tfvars.json
+!terraform.tfvars.example
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration files
+.terraformrc
+terraform.rc
+
+# Plan files
+*.tfplan
+tfplan
+
+# Lock files (optional - some teams prefer to commit these)
+# .terraform.lock.hcl
+
+# =============================================================================
+# AWS
+# =============================================================================
+.aws/
+aws-credentials
+*.pem
+
+# =============================================================================
+# OS Generated
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# =============================================================================
+# Logs
+# =============================================================================
+*.log
+logs/
+npm-debug.log*
+
+# =============================================================================
+# Environment & Secrets
+# =============================================================================
+.env
+.env.local
+.env.*.local
+*.env
+secrets/
+credentials/
+*.secret
+
+# =============================================================================
+# Build Artifacts
+# =============================================================================
+dist/
+build/
+out/
+*.zip
+*.gz
+*.tar
+
+# =============================================================================
+# Test & Coverage
+# =============================================================================
+coverage/
+*.lcov
+.nyc_output/
+test-results/
+junit-reports/
+
+# =============================================================================
+# Claude Code
+# =============================================================================
+.claude/
+!.claude/settings.json

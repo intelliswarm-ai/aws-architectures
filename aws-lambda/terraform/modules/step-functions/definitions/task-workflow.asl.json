@@ -1,0 +1,218 @@
+{
+  "Comment": "Task Automation Workflow - Multi-step task processing with error handling",
+  "StartAt": "ValidateTask",
+  "States": {
+    "ValidateTask": {
+      "Type": "Task",
+      "Resource": "${validate_task_lambda_arn}",
+      "ResultPath": "$.validationResult",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["TaskValidationException"],
+          "ResultPath": "$.error",
+          "Next": "HandleValidationError"
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleUnexpectedError"
+        }
+      ],
+      "Next": "ProcessTask"
+    },
+    "ProcessTask": {
+      "Type": "Task",
+      "Resource": "${process_task_lambda_arn}",
+      "ResultPath": "$.processingResult",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.TooManyRequestsException",
+            "RetryableException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["NonRetryableException"],
+          "ResultPath": "$.error",
+          "Next": "HandleProcessingError"
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleProcessingError"
+        }
+      ],
+      "Next": "FinalizeTask"
+    },
+    "FinalizeTask": {
+      "Type": "Task",
+      "Resource": "${finalize_task_lambda_arn}",
+      "ResultPath": "$.finalResult",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleFinalizationError"
+        }
+      ],
+      "Next": "NotifySuccess"
+    },
+    "NotifySuccess": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${success_topic_arn}",
+        "Message.$": "States.JsonToString($.finalResult)",
+        "Subject": "Task Completed Successfully",
+        "MessageAttributes": {
+          "taskId": {
+            "DataType": "String",
+            "StringValue.$": "$.taskId"
+          },
+          "status": {
+            "DataType": "String",
+            "StringValue": "SUCCESS"
+          }
+        }
+      },
+      "ResultPath": "$.notificationResult",
+      "End": true
+    },
+    "HandleValidationError": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${failure_topic_arn}",
+        "Message.$": "States.JsonToString($.error)",
+        "Subject": "Task Validation Failed",
+        "MessageAttributes": {
+          "taskId": {
+            "DataType": "String",
+            "StringValue.$": "$.taskId"
+          },
+          "status": {
+            "DataType": "String",
+            "StringValue": "VALIDATION_FAILED"
+          },
+          "errorType": {
+            "DataType": "String",
+            "StringValue": "ValidationError"
+          }
+        }
+      },
+      "ResultPath": "$.notificationResult",
+      "Next": "FailWorkflow"
+    },
+    "HandleProcessingError": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${failure_topic_arn}",
+        "Message.$": "States.JsonToString($.error)",
+        "Subject": "Task Processing Failed",
+        "MessageAttributes": {
+          "taskId": {
+            "DataType": "String",
+            "StringValue.$": "$.taskId"
+          },
+          "status": {
+            "DataType": "String",
+            "StringValue": "PROCESSING_FAILED"
+          },
+          "errorType": {
+            "DataType": "String",
+            "StringValue": "ProcessingError"
+          }
+        }
+      },
+      "ResultPath": "$.notificationResult",
+      "Next": "FailWorkflow"
+    },
+    "HandleFinalizationError": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${failure_topic_arn}",
+        "Message.$": "States.JsonToString($.error)",
+        "Subject": "Task Finalization Failed",
+        "MessageAttributes": {
+          "taskId": {
+            "DataType": "String",
+            "StringValue.$": "$.taskId"
+          },
+          "status": {
+            "DataType": "String",
+            "StringValue": "FINALIZATION_FAILED"
+          },
+          "errorType": {
+            "DataType": "String",
+            "StringValue": "FinalizationError"
+          }
+        }
+      },
+      "ResultPath": "$.notificationResult",
+      "Next": "FailWorkflow"
+    },
+    "HandleUnexpectedError": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${failure_topic_arn}",
+        "Message.$": "States.JsonToString($.error)",
+        "Subject": "Unexpected Workflow Error",
+        "MessageAttributes": {
+          "taskId": {
+            "DataType": "String",
+            "StringValue.$": "$.taskId"
+          },
+          "status": {
+            "DataType": "String",
+            "StringValue": "UNEXPECTED_ERROR"
+          },
+          "errorType": {
+            "DataType": "String",
+            "StringValue": "UnexpectedError"
+          }
+        }
+      },
+      "ResultPath": "$.notificationResult",
+      "Next": "FailWorkflow"
+    },
+    "FailWorkflow": {
+      "Type": "Fail",
+      "Error": "WorkflowFailed",
+      "Cause": "Task processing workflow failed. See error details in notification."
+    }
+  }
+}
