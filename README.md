@@ -8,6 +8,7 @@ A collection of AWS serverless architecture prototypes demonstrating best practi
 |---------|-------------|----------|------------------|
 | [aws-lambda](./aws-lambda) | Task Automation System | Java 21 | Lambda, SQS, DynamoDB, Step Functions |
 | [aws-ml](./aws-ml) | Intelligent Document Processing | Python 3.12 | SageMaker, Bedrock, Textract, Comprehend |
+| [aws-serverless](./aws-serverless) | Multi-Tenant SaaS Platform (intelliswarm.ai) | Python 3.12 | Cognito, WAF, KMS, VPC, Bedrock, CloudTrail |
 
 ---
 
@@ -71,9 +72,55 @@ cd aws-ml
 
 ---
 
+## aws-serverless
+
+**Multi-Tenant SaaS Platform for intelliswarm.ai** - GenAI-powered email and CRM intelligence solution for enterprises of 50-10,000 employees.
+
+### Use Case
+- **Email Intelligence** - Connect Microsoft 365/Google Workspace mailboxes and analyze emails using GenAI (Amazon Bedrock/Claude)
+- **CRM Integration** - Sync contacts, deals, and activities with Salesforce, HubSpot, or Dynamics 365
+- **Smart Prioritization** - AI-powered email sentiment analysis, intent detection, and priority scoring
+- **Action Extraction** - Automatically extract action items and tasks from email conversations
+
+### Architecture Highlights
+- **Cognito Authentication** with MFA, custom Lambda authorizer
+- **VPC Integration** for private Lambda deployment with VPC Endpoints
+- **WAF Protection** with rate limiting, SQL injection, and XSS prevention
+- **KMS Encryption** for all data at rest
+- **Secrets Manager** with automatic rotation for OAuth tokens
+- **CloudTrail** multi-region audit logging with Insights
+- **AWS Config** compliance monitoring with managed rules
+- **Budgets** cost management with anomaly detection
+- **Multi-Tenant** architecture with Cognito claims-based isolation
+
+### Tech Stack
+- Python 3.12 with type hints
+- Pydantic for data validation and settings
+- JWT validation with python-jose
+- AWS Lambda Powertools (logging, tracing, metrics)
+- Amazon Bedrock (Claude 3 Sonnet) for GenAI
+- Terraform modular infrastructure (20+ modules)
+
+### Key Enterprise Features
+- **IAM Permission Boundaries** - Prevent privilege escalation
+- **VPC Endpoints** - Private AWS service access (S3, DynamoDB, Secrets Manager, Bedrock)
+- **Multi-Environment** - Dev/staging/prod with security profiles
+- **Cost Management** - Service-specific budgets with alerts
+
+### Quick Start
+```bash
+cd aws-serverless
+./scripts/build.sh
+./scripts/deploy.sh --env dev
+```
+
+[View full documentation](./aws-serverless/README.md)
+
+---
+
 ## Common Patterns
 
-Both projects demonstrate:
+All projects demonstrate:
 
 ### Infrastructure as Code
 - **Modular Terraform** - Reusable modules for Lambda, SQS, DynamoDB, etc.
@@ -88,7 +135,8 @@ Both projects demonstrate:
 
 ### Security
 - **IAM least privilege** - Minimal permissions per function
-- **Secrets management** - Environment variables via Terraform
+- **Secrets management** - Secrets Manager / Parameter Store
+- **Encryption at rest** - KMS customer managed keys
 - **VPC isolation** - Optional private subnet deployment
 
 ---
@@ -104,7 +152,7 @@ Both projects demonstrate:
 - Java 21 (Amazon Corretto recommended)
 - Maven 3.8+
 
-### aws-ml (Python)
+### aws-ml / aws-serverless (Python)
 - Python 3.12+
 - pip or uv for package management
 
@@ -112,7 +160,7 @@ Both projects demonstrate:
 
 ## AWS Region
 
-All projects default to **eu-central-2** (EU Zurich). Modify `terraform.tfvars` to change:
+All projects default to **eu-central-2** (EU Zurich). Modify `terraform.tfvars` or environment files:
 
 ```hcl
 aws_region = "eu-central-2"  # EU Zurich
@@ -122,7 +170,7 @@ aws_region = "eu-central-2"  # EU Zurich
 
 ## Cost Considerations
 
-Both projects use serverless, pay-per-use services:
+All projects use serverless, pay-per-use services:
 
 | Service | Free Tier | Pricing |
 |---------|-----------|---------|
@@ -131,8 +179,9 @@ Both projects use serverless, pay-per-use services:
 | DynamoDB | 25GB storage | On-demand per request |
 | Step Functions | 4,000 transitions/month | $25/1M transitions |
 | S3 | 5GB storage | $0.023/GB/month |
-| SageMaker | None | Instance hours |
-| Bedrock | None | Per-token pricing |
+| Cognito | 50K MAU | $0.0055/MAU after |
+| NAT Gateway | None | $0.045/hour + data |
+| KMS | None | $1/key/month |
 
 **Tip**: Use `./scripts/deploy.sh --destroy` to tear down resources when not in use.
 
@@ -148,10 +197,16 @@ aws-prototypes/
 │   ├── terraform/            # Infrastructure
 │   ├── scripts/              # Build/deploy scripts
 │   └── README.md
-└── aws-ml/                   # Python ML Platform
+├── aws-ml/                   # Python ML Platform
+│   ├── src/                  # Python Lambda source
+│   ├── sagemaker/            # Training code
+│   ├── terraform/            # Infrastructure
+│   ├── scripts/              # Build/deploy scripts
+│   └── README.md
+└── aws-serverless/           # Enterprise API Platform
     ├── src/                  # Python Lambda source
-    ├── sagemaker/            # Training code
     ├── terraform/            # Infrastructure
+    ├── environments/         # Dev/staging/prod configs
     ├── scripts/              # Build/deploy scripts
     └── README.md
 ```
