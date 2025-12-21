@@ -1,6 +1,6 @@
 # AWS Prototypes
 
-A collection of AWS serverless architecture prototypes demonstrating best practices for cloud-native application development. Each project showcases different AWS services, patterns, and implementation approaches.
+A collection of AWS architecture prototypes demonstrating best practices for cloud-native and hybrid application development. Each project showcases different AWS services, patterns, and implementation approaches including serverless, PaaS, and hybrid cloud architectures.
 
 ## Projects
 
@@ -10,6 +10,7 @@ A collection of AWS serverless architecture prototypes demonstrating best practi
 | [aws-ml](./aws-ml) | Intelligent Document Processing | Python 3.12 | SageMaker, Bedrock, Textract, Comprehend |
 | [aws-serverless](./aws-serverless) | Multi-Tenant SaaS Platform (intelliswarm.ai) | Python 3.12 | Cognito, WAF, KMS, VPC, Bedrock, CloudTrail |
 | [aws-kinesis](./aws-kinesis) | Real-Time GPS Tracking System | Python 3.12 | Kinesis Data Streams, Lambda, DynamoDB, S3 |
+| [aws-elasticbeanstalk](./aws-elasticbeanstalk) | Hybrid Enterprise Inventory System | Java 21 | Elastic Beanstalk, VPN Gateway, S3, CloudWatch |
 
 ---
 
@@ -161,6 +162,47 @@ cd aws-kinesis
 
 ---
 
+## aws-elasticbeanstalk
+
+**Hybrid Enterprise Inventory System** - A migrated full-stack Java application running on AWS Elastic Beanstalk with hybrid connectivity to an on-premises Oracle database.
+
+### Use Case
+A company migrating their legacy on-premises inventory management system to AWS. Due to compliance requirements and existing Oracle investments, the database remains on-premises while the application layer moves to AWS, connected via VPN/Direct Connect.
+
+### Architecture Highlights
+- **Elastic Beanstalk** managed Java platform with auto-scaling
+- **VPN Gateway** secure connectivity to on-premises Oracle database
+- **Hybrid Architecture** application in AWS, database on-premises
+- **JasperReports** enterprise PDF/Excel report generation
+- **S3** report storage with lifecycle policies
+- **CloudWatch** monitoring, dashboards, and alarms
+
+### Tech Stack
+- Java 21 with Spring Boot 3.2
+- Hibernate 6.x with Oracle dialect
+- JasperReports 6.21 for reporting
+- Thymeleaf for server-side templating
+- Spring Security for authentication
+- Terraform modular infrastructure (5 modules)
+
+### Key Features
+- **On-Premises Oracle** - No database migration required
+- **VPN/Direct Connect** - Secure hybrid connectivity
+- **Role-Based Access** - Admin, Manager, Staff roles
+- **Report Generation** - Inventory and low-stock PDF/Excel reports
+- **Multi-Cloud Ready** - Documentation for Azure/GCP equivalents
+
+### Quick Start
+```bash
+cd aws-elasticbeanstalk
+./scripts/build.sh
+./scripts/deploy.sh -e dev
+```
+
+[View full documentation](./aws-elasticbeanstalk/README.md)
+
+---
+
 ## Common Patterns
 
 All projects demonstrate:
@@ -191,11 +233,11 @@ All projects demonstrate:
 - **Terraform 1.5+**
 - **AWS Account** with admin or sufficient permissions
 
-### aws-lambda (Java)
+### aws-lambda / aws-elasticbeanstalk (Java)
 - Java 21 (Amazon Corretto recommended)
-- Maven 3.8+
+- Maven 3.9+
 
-### aws-ml / aws-serverless (Python)
+### aws-ml / aws-serverless / aws-kinesis (Python)
 - Python 3.12+
 - pip or uv for package management
 
@@ -213,7 +255,7 @@ aws_region = "eu-central-2"  # EU Zurich
 
 ## Cost Considerations
 
-All projects use serverless, pay-per-use services:
+Most projects use serverless, pay-per-use services. The aws-elasticbeanstalk project uses EC2-based pricing:
 
 | Service | Free Tier | Pricing |
 |---------|-----------|---------|
@@ -225,6 +267,8 @@ All projects use serverless, pay-per-use services:
 | Cognito | 50K MAU | $0.0055/MAU after |
 | NAT Gateway | None | $0.045/hour + data |
 | KMS | None | $1/key/month |
+| Elastic Beanstalk | None (EC2 costs) | ~$30/mo per t3.medium |
+| VPN Gateway | None | $0.05/hour (~$36/mo) |
 
 **Tip**: Use `./scripts/deploy.sh --destroy` to tear down resources when not in use.
 
@@ -252,10 +296,18 @@ aws-prototypes/
 │   ├── environments/         # Dev/staging/prod configs
 │   ├── scripts/              # Build/deploy scripts
 │   └── README.md
-└── aws-kinesis/              # Real-Time GPS Tracking
-    ├── src/                  # Python Lambda source
-    ├── terraform/            # Infrastructure (7 modules)
-    ├── tests/                # Unit and integration tests
+├── aws-kinesis/              # Real-Time GPS Tracking
+│   ├── src/                  # Python Lambda source
+│   ├── terraform/            # Infrastructure (7 modules)
+│   ├── tests/                # Unit and integration tests
+│   ├── scripts/              # Build/deploy scripts
+│   └── README.md
+└── aws-elasticbeanstalk/     # Hybrid Enterprise Inventory
+    ├── application/          # Spring Boot application
+    │   ├── src/              # Java source (ai.intelliswarm.inventory)
+    │   ├── .ebextensions/    # EB configuration
+    │   └── pom.xml           # Maven configuration
+    ├── terraform/            # Infrastructure (5 modules)
     ├── scripts/              # Build/deploy scripts
     └── README.md
 ```
