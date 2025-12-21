@@ -255,6 +255,143 @@ CloudWatch dashboards include:
 - Use S3 Intelligent-Tiering for archived data
 - Consider Kinesis Data Firehose for simplified archival
 
+## Multi-Cloud Deployment
+
+This architecture can be implemented on other cloud providers using equivalent services. Below is a mapping of AWS services to their counterparts on Microsoft Azure and Google Cloud Platform.
+
+### Service Mapping
+
+| Component | AWS | Azure | GCP |
+|-----------|-----|-------|-----|
+| **Stream Ingestion** | Kinesis Data Streams | Event Hubs | Pub/Sub |
+| **Stream Processing** | Lambda (Kinesis trigger) | Azure Functions (Event Hub trigger) | Cloud Functions (Pub/Sub trigger) |
+| **Serverless Compute** | AWS Lambda | Azure Functions | Cloud Functions / Cloud Run |
+| **NoSQL Database** | DynamoDB | Cosmos DB | Firestore / Bigtable |
+| **Object Storage** | S3 | Blob Storage | Cloud Storage |
+| **Pub/Sub Messaging** | SNS | Service Bus / Event Grid | Pub/Sub |
+| **Scheduler** | EventBridge | Logic Apps / Timer Trigger | Cloud Scheduler |
+| **Monitoring** | CloudWatch | Azure Monitor | Cloud Monitoring |
+| **Tracing** | X-Ray | Application Insights | Cloud Trace |
+| **IAM** | IAM Roles/Policies | Azure AD / RBAC | IAM / Service Accounts |
+| **IaC** | Terraform / CloudFormation | Terraform / ARM / Bicep | Terraform / Deployment Manager |
+
+### Architecture on Azure
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  ┌─────────────────┐    ┌─────────────────────────────────┐                │
+│  │ Timer Trigger   │    │         Event Hubs               │                │
+│  │ Azure Function  │───▶│  (gps-coordinates-hub)           │                │
+│  └─────────────────┘    │  - Partitions for throughput     │                │
+│                         │  - 24hr retention                 │                │
+│                         └───────────────┬─────────────────┘                │
+│                                         │                                   │
+│           ┌─────────────────────────────┼─────────────────────────┐        │
+│           ▼                             ▼                         ▼        │
+│  ┌─────────────────┐        ┌─────────────────┐        ┌─────────────────┐ │
+│  │ Azure Function  │        │ Azure Function  │        │ Azure Function  │ │
+│  │ (Dashboard)     │        │ (Geofence)      │        │ (Archive)       │ │
+│  └────────┬────────┘        └────────┬────────┘        └────────┬────────┘ │
+│           ▼                          ▼                          ▼          │
+│  ┌─────────────────┐        ┌─────────────────┐        ┌─────────────────┐ │
+│  │ Cosmos DB       │        │ Service Bus     │        │ Blob Storage    │ │
+│  └─────────────────┘        └─────────────────┘        └─────────────────┘ │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Azure Considerations:**
+- **Event Hubs** uses partitions instead of shards (similar concept)
+- **Cosmos DB** with partition key on `truck_id` for scalability
+- **Azure Functions** with Event Hub trigger for stream processing
+- **Blob Storage** with lifecycle management for tiering to Cool/Archive
+- Use **Consumer Groups** for multiple consumers reading the same stream
+
+### Architecture on Google Cloud
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  ┌─────────────────┐    ┌─────────────────────────────────┐                │
+│  │ Cloud Scheduler │    │         Pub/Sub Topic            │                │
+│  │ + Cloud Function│───▶│  (gps-coordinates-topic)         │                │
+│  └─────────────────┘    │  - Multiple subscriptions        │                │
+│                         │  - 7-day retention               │                │
+│                         └───────────────┬─────────────────┘                │
+│                                         │                                   │
+│           ┌─────────────────────────────┼─────────────────────────┐        │
+│           ▼                             ▼                         ▼        │
+│  ┌─────────────────┐        ┌─────────────────┐        ┌─────────────────┐ │
+│  │ Cloud Function  │        │ Cloud Function  │        │ Cloud Function  │ │
+│  │ (Dashboard)     │        │ (Geofence)      │        │ (Archive)       │ │
+│  │ Subscription A  │        │ Subscription B  │        │ Subscription C  │ │
+│  └────────┬────────┘        └────────┬────────┘        └────────┬────────┘ │
+│           ▼                          ▼                          ▼          │
+│  ┌─────────────────┐        ┌─────────────────┐        ┌─────────────────┐ │
+│  │ Firestore       │        │ Pub/Sub         │        │ Cloud Storage   │ │
+│  └─────────────────┘        │ (alerts topic)  │        └─────────────────┘ │
+│                             └─────────────────┘                             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key GCP Considerations:**
+- **Pub/Sub** uses subscriptions for fan-out (each consumer gets its own subscription)
+- **Firestore** in Datastore mode for key-value access patterns
+- **Cloud Functions** with Pub/Sub trigger (or Cloud Run for containers)
+- **Cloud Storage** with Object Lifecycle Management for Nearline/Coldline/Archive
+- **Ordering keys** in Pub/Sub ensure per-truck ordering (similar to partition keys)
+
+### Implementation Differences
+
+| Aspect | AWS | Azure | GCP |
+|--------|-----|-------|-----|
+| **Ordering** | Partition key per shard | Partition key per partition | Ordering key per subscription |
+| **Fan-out** | Multiple Lambda consumers | Consumer groups | Multiple subscriptions |
+| **Scaling** | Shard splitting | Auto-inflate partitions | Automatic |
+| **Retention** | 24h - 365 days | 1 - 90 days | 10 min - 7 days (31 with Lite) |
+| **Max Message Size** | 1 MB | 1 MB (256 KB standard) | 10 MB |
+| **Throughput** | 1 MB/s per shard | 1 MB/s per TU | Unlimited (quota-based) |
+
+### Terraform Multi-Cloud
+
+This project uses Terraform, which supports all three cloud providers. To deploy on a different cloud:
+
+1. **Azure**: Use `azurerm` provider with equivalent resources:
+   ```hcl
+   provider "azurerm" {
+     features {}
+   }
+
+   resource "azurerm_eventhub_namespace" "gps" { ... }
+   resource "azurerm_eventhub" "coordinates" { ... }
+   resource "azurerm_cosmosdb_account" "positions" { ... }
+   ```
+
+2. **GCP**: Use `google` provider with equivalent resources:
+   ```hcl
+   provider "google" {
+     project = var.project_id
+     region  = var.region
+   }
+
+   resource "google_pubsub_topic" "coordinates" { ... }
+   resource "google_pubsub_subscription" "dashboard" { ... }
+   resource "google_firestore_database" "positions" { ... }
+   ```
+
+### Choosing the Right Platform
+
+| Criteria | Best Choice | Reason |
+|----------|-------------|--------|
+| **Existing AWS investment** | AWS Kinesis | Native integration, single billing |
+| **Microsoft ecosystem** | Azure Event Hubs | Azure AD, Power BI, Dynamics 365 integration |
+| **High message volume** | GCP Pub/Sub | Unlimited throughput, simpler pricing |
+| **Long retention needed** | AWS Kinesis | Up to 365 days retention |
+| **Real-time analytics** | AWS Kinesis + Analytics | Kinesis Data Analytics with SQL/Flink |
+| **Cost sensitivity** | GCP Pub/Sub | Pay per message, no provisioned capacity |
+
 ## License
 
 This project is licensed under the MIT License.
