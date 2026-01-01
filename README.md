@@ -11,6 +11,7 @@ A collection of AWS architecture examples demonstrating best practices for cloud
 | [aws-serverless](./aws-serverless) | Multi-Tenant SaaS Platform (intelliswarm.ai) | Python 3.12 | Cognito, WAF, KMS, VPC, Bedrock, CloudTrail | [docs](./aws-serverless/docs/BUSINESS_LOGIC.md) |
 | [aws-kinesis](./aws-kinesis) | Real-Time GPS Tracking System | Python 3.12 | Kinesis Data Streams, Lambda, DynamoDB, S3 | [docs](./aws-kinesis/docs/BUSINESS_LOGIC.md) |
 | [aws-sms](./aws-sms) | SMS Marketing Campaign Platform | Python 3.12 | Pinpoint, Kinesis, Lambda, DynamoDB, S3 | [docs](./aws-sms/docs/BUSINESS_LOGIC.md) |
+| [aws-call-sentiment](./aws-call-sentiment) | Call Center Sentiment Analysis | Python 3.12 | Comprehend, OpenSearch, Lambda, S3, API Gateway | [docs](./aws-call-sentiment/docs/BUSINESS_LOGIC.md) |
 | [aws-elasticbeanstalk](./aws-elasticbeanstalk) | Hybrid Enterprise Inventory System | Java 21 | Elastic Beanstalk, VPN Gateway, S3, CloudWatch | [docs](./aws-elasticbeanstalk/docs/BUSINESS_LOGIC.md) |
 
 ---
@@ -204,6 +205,47 @@ cd aws-sms
 
 ---
 
+## aws-call-sentiment
+
+**Call Center Sentiment Analysis Platform** - Analyze customer service call transcripts using Amazon Comprehend with OpenSearch visualization.
+
+### Use Case
+A company analyzing customer service calls to identify satisfaction trends, monitor agent performance, detect escalation patterns, and generate actionable insights for training.
+
+### Architecture Highlights
+- **S3 Trigger** automatic processing when transcripts uploaded
+- **Amazon Comprehend** sentiment analysis, entity extraction, key phrases
+- **Batch Processing** scheduled batch jobs for high volume
+- **Amazon OpenSearch** full-text search and analytics dashboards
+- **REST API** query calls, stats, agent metrics
+- **Speaker Analysis** separate customer vs agent sentiment
+
+### Tech Stack
+- Python 3.12 with type hints
+- Pydantic for data validation
+- AWS Lambda Powertools (logging, tracing, metrics)
+- OpenSearch-py for indexing and queries
+- Terraform modular infrastructure (7 modules)
+
+### Key Features
+- **Real-time Analysis** immediate processing via S3 events
+- **Batch Jobs** scheduled Comprehend batch processing
+- **Entity Extraction** identify products, people, organizations
+- **Quality Scoring** calculated call quality scores
+- **Agent Metrics** performance tracking per agent
+- **Trend Analysis** sentiment trends over time
+
+### Quick Start
+```bash
+cd aws-call-sentiment
+./scripts/build.sh
+./scripts/deploy.sh -e dev
+```
+
+[View full documentation](./aws-call-sentiment/README.md) | [Business Logic](./aws-call-sentiment/docs/BUSINESS_LOGIC.md)
+
+---
+
 ## aws-elasticbeanstalk
 
 **Hybrid Enterprise Inventory System** - A migrated full-stack Java application running on AWS Elastic Beanstalk with hybrid connectivity to an on-premises Oracle database.
@@ -279,7 +321,7 @@ All projects demonstrate:
 - Java 21 (Amazon Corretto recommended)
 - Maven 3.9+
 
-### aws-ml / aws-serverless / aws-kinesis / aws-sms (Python)
+### aws-ml / aws-serverless / aws-kinesis / aws-sms / aws-call-sentiment (Python)
 - Python 3.12+
 - pip or uv for package management
 
@@ -311,6 +353,8 @@ Most projects use serverless, pay-per-use services. The aws-elasticbeanstalk pro
 | KMS | None | $1/key/month |
 | Kinesis | None | $0.015/shard-hour |
 | Pinpoint | 100 SMS/month | $0.00645/SMS (US) |
+| Comprehend | None | $0.0001/unit (sentiment) |
+| OpenSearch | None | ~$0.036/hour (t3.small) |
 | Elastic Beanstalk | None (EC2 costs) | ~$30/mo per t3.medium |
 | VPN Gateway | None | $0.05/hour (~$36/mo) |
 
@@ -349,6 +393,13 @@ aws-examples/
 ├── aws-sms/                  # SMS Marketing Campaign Platform
 │   ├── src/                  # Python Lambda source
 │   ├── terraform/            # Infrastructure (8 modules)
+│   ├── tests/                # Unit and integration tests
+│   ├── docs/                 # Business logic documentation
+│   ├── scripts/              # Build/deploy scripts
+│   └── README.md
+├── aws-call-sentiment/       # Call Center Sentiment Analysis
+│   ├── src/                  # Python Lambda source
+│   ├── terraform/            # Infrastructure (7 modules)
 │   ├── tests/                # Unit and integration tests
 │   ├── docs/                 # Business logic documentation
 │   ├── scripts/              # Build/deploy scripts
