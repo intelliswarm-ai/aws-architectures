@@ -9,10 +9,10 @@ A serverless solution for analyzing customer service call transcripts using Amaz
 │                         CALL SENTIMENT ANALYSIS PLATFORM                            │
 ├─────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                     │
-│   ┌──────────────┐     ┌──────────────┐     ┌──────────────────────────────────┐    │
-│   │   S3 Bucket  │────▶│   Lambda     │────▶│      Amazon Comprehend           │    │
-│   │ (Transcripts)│     │  (Trigger)   │     │   (Sentiment Analysis Job)       │    │
-│   └──────────────┘     └──────────────┘     └──────────────────────────────────┘    │
+│   ┌──────────────┐     ┌──────────────┐      ┌──────────────────────────────────┐   │
+│   │   S3 Bucket  │────▶│   Lambda     │────▶│      Amazon Comprehend           │   │
+│   │ (Transcripts)│     │  (Trigger)   │      │   (Sentiment Analysis Job)       │   │
+│   └──────────────┘     └──────────────┘      └──────────────────────────────────┘   │
 │         │                                              │                            │
 │         │                                              ▼                            │
 │         │              ┌──────────────┐     ┌──────────────────────────────────┐    │
