@@ -4,13 +4,14 @@ A collection of AWS architecture examples demonstrating best practices for cloud
 
 ## Projects
 
-| Project | Description | Language | Key AWS Services |
-|---------|-------------|----------|------------------|
-| [aws-lambda](./aws-lambda) | Task Automation System | Java 21 | Lambda, SQS, DynamoDB, Step Functions |
-| [aws-ml](./aws-ml) | Intelligent Document Processing | Python 3.12 | SageMaker, Bedrock, Textract, Comprehend |
-| [aws-serverless](./aws-serverless) | Multi-Tenant SaaS Platform (intelliswarm.ai) | Python 3.12 | Cognito, WAF, KMS, VPC, Bedrock, CloudTrail |
-| [aws-kinesis](./aws-kinesis) | Real-Time GPS Tracking System | Python 3.12 | Kinesis Data Streams, Lambda, DynamoDB, S3 |
-| [aws-elasticbeanstalk](./aws-elasticbeanstalk) | Hybrid Enterprise Inventory System | Java 21 | Elastic Beanstalk, VPN Gateway, S3, CloudWatch |
+| Project | Description | Language | Key AWS Services | Business Logic |
+|---------|-------------|----------|------------------|----------------|
+| [aws-lambda](./aws-lambda) | Task Automation System | Java 21 | Lambda, SQS, DynamoDB, Step Functions | [docs](./aws-lambda/docs/BUSINESS_LOGIC.md) |
+| [aws-ml](./aws-ml) | Intelligent Document Processing | Python 3.12 | SageMaker, Bedrock, Textract, Comprehend | [docs](./aws-ml/docs/BUSINESS_LOGIC.md) |
+| [aws-serverless](./aws-serverless) | Multi-Tenant SaaS Platform (intelliswarm.ai) | Python 3.12 | Cognito, WAF, KMS, VPC, Bedrock, CloudTrail | [docs](./aws-serverless/docs/BUSINESS_LOGIC.md) |
+| [aws-kinesis](./aws-kinesis) | Real-Time GPS Tracking System | Python 3.12 | Kinesis Data Streams, Lambda, DynamoDB, S3 | [docs](./aws-kinesis/docs/BUSINESS_LOGIC.md) |
+| [aws-sms](./aws-sms) | SMS Marketing Campaign Platform | Python 3.12 | Pinpoint, Kinesis, Lambda, DynamoDB, S3 | [docs](./aws-sms/docs/BUSINESS_LOGIC.md) |
+| [aws-elasticbeanstalk](./aws-elasticbeanstalk) | Hybrid Enterprise Inventory System | Java 21 | Elastic Beanstalk, VPN Gateway, S3, CloudWatch | [docs](./aws-elasticbeanstalk/docs/BUSINESS_LOGIC.md) |
 
 ---
 
@@ -38,7 +39,7 @@ cd aws-lambda
 ./scripts/deploy.sh
 ```
 
-[View full documentation](./aws-lambda/README.md)
+[View full documentation](./aws-lambda/README.md) | [Business Logic](./aws-lambda/docs/BUSINESS_LOGIC.md)
 
 ---
 
@@ -70,7 +71,7 @@ cd aws-ml
 ./scripts/deploy.sh
 ```
 
-[View full documentation](./aws-ml/README.md)
+[View full documentation](./aws-ml/README.md) | [Business Logic](./aws-ml/docs/BUSINESS_LOGIC.md)
 
 ---
 
@@ -116,7 +117,7 @@ cd aws-serverless
 ./scripts/deploy.sh --env dev
 ```
 
-[View full documentation](./aws-serverless/README.md)
+[View full documentation](./aws-serverless/README.md) | [Business Logic](./aws-serverless/docs/BUSINESS_LOGIC.md)
 
 ---
 
@@ -158,7 +159,48 @@ cd aws-kinesis
 ./scripts/deploy.sh
 ```
 
-[View full documentation](./aws-kinesis/README.md)
+[View full documentation](./aws-kinesis/README.md) | [Business Logic](./aws-kinesis/docs/BUSINESS_LOGIC.md)
+
+---
+
+## aws-sms
+
+**SMS Marketing Campaign Platform** - A two-way SMS marketing system with subscriber response processing and analytics.
+
+### Use Case
+A mobile app sending one-time confirmation messages and multi-engagement marketing campaigns. Subscribers can reply (YES/NO/STOP), and all responses are retained for 1 year for analysis and compliance.
+
+### Architecture Highlights
+- **Amazon Pinpoint** SMS channel with journey orchestration
+- **Two-Way SMS** subscriber response handling (opt-in, opt-out, confirmations)
+- **Kinesis Data Streams** with 365-day retention for compliance
+- **Multi-Consumer Processing** - Response handler, analytics, archival
+- **DynamoDB** subscriber management with TTL for 1-year retention
+- **S3** archival with lifecycle policies (IA → Glacier)
+- **SNS** notifications for opt-out alerts
+
+### Tech Stack
+- Python 3.12 with type hints
+- Pydantic for data validation
+- AWS Lambda Powertools (logging, tracing, metrics)
+- Sentiment analysis for response categorization
+- Terraform modular infrastructure (8 modules)
+
+### Key Features
+- **Keyword Detection** - STOP, UNSUBSCRIBE for opt-out; YES, CONFIRM for opt-in
+- **Response Sentiment** - Positive, negative, neutral classification
+- **Subscriber Lifecycle** - PENDING → ACTIVE → OPTED_OUT state machine
+- **Analytics Aggregation** - Delivery rates, response rates, cost tracking
+- **Compliance** - 365-day data retention, opt-out handling
+
+### Quick Start
+```bash
+cd aws-sms
+./scripts/build.sh
+./scripts/deploy.sh
+```
+
+[View full documentation](./aws-sms/README.md) | [Business Logic](./aws-sms/docs/BUSINESS_LOGIC.md)
 
 ---
 
@@ -199,7 +241,7 @@ cd aws-elasticbeanstalk
 ./scripts/deploy.sh -e dev
 ```
 
-[View full documentation](./aws-elasticbeanstalk/README.md)
+[View full documentation](./aws-elasticbeanstalk/README.md) | [Business Logic](./aws-elasticbeanstalk/docs/BUSINESS_LOGIC.md)
 
 ---
 
@@ -237,7 +279,7 @@ All projects demonstrate:
 - Java 21 (Amazon Corretto recommended)
 - Maven 3.9+
 
-### aws-ml / aws-serverless / aws-kinesis (Python)
+### aws-ml / aws-serverless / aws-kinesis / aws-sms (Python)
 - Python 3.12+
 - pip or uv for package management
 
@@ -267,6 +309,8 @@ Most projects use serverless, pay-per-use services. The aws-elasticbeanstalk pro
 | Cognito | 50K MAU | $0.0055/MAU after |
 | NAT Gateway | None | $0.045/hour + data |
 | KMS | None | $1/key/month |
+| Kinesis | None | $0.015/shard-hour |
+| Pinpoint | 100 SMS/month | $0.00645/SMS (US) |
 | Elastic Beanstalk | None (EC2 costs) | ~$30/mo per t3.medium |
 | VPN Gateway | None | $0.05/hour (~$36/mo) |
 
@@ -300,6 +344,13 @@ aws-examples/
 │   ├── src/                  # Python Lambda source
 │   ├── terraform/            # Infrastructure (7 modules)
 │   ├── tests/                # Unit and integration tests
+│   ├── scripts/              # Build/deploy scripts
+│   └── README.md
+├── aws-sms/                  # SMS Marketing Campaign Platform
+│   ├── src/                  # Python Lambda source
+│   ├── terraform/            # Infrastructure (8 modules)
+│   ├── tests/                # Unit and integration tests
+│   ├── docs/                 # Business logic documentation
 │   ├── scripts/              # Build/deploy scripts
 │   └── README.md
 └── aws-elasticbeanstalk/     # Hybrid Enterprise Inventory

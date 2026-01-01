@@ -45,14 +45,14 @@ The SMS Marketing System enables businesses to:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            OUTBOUND FLOW                                     │
+│                            OUTBOUND FLOW                                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Marketing Team          Pinpoint Journey           Subscriber               │
-│  ┌──────────┐           ┌──────────────┐          ┌──────────┐             │
-│  │ Create   │──────────▶│ Execute      │─────────▶│ Receive  │             │
-│  │ Campaign │           │ Multi-step   │          │ SMS      │             │
-│  └──────────┘           │ Journey      │          └──────────┘             │
+│                                                                             │
+│  Marketing Team          Pinpoint Journey           Subscriber              │
+│  ┌──────────┐           ┌──────────────┐          ┌──────────┐              │
+│  │ Create   │──────────▶│ Execute      │─────────▶│ Receive  │              │
+│  │ Campaign │           │ Multi-step   │          │ SMS      │              │
+│  └──────────┘           │ Journey      │          └──────────┘              │
 │                         └──────┬───────┘                                    │
 │                                │                                            │
 │                                ▼                                            │
@@ -60,27 +60,27 @@ The SMS Marketing System enables businesses to:
 │                         │ Event Stream │                                    │
 │                         │ to Kinesis   │                                    │
 │                         └──────────────┘                                    │
-│                                                                              │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            INBOUND FLOW                                      │
+│                            INBOUND FLOW                                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Subscriber              Pinpoint SMS              Processing                │
+│                                                                             │
+│  Subscriber              Pinpoint SMS              Processing               │
 │  ┌──────────┐           ┌──────────────┐          ┌──────────────┐          │
 │  │ Reply    │──────────▶│ Receive      │─────────▶│ Kinesis      │          │
 │  │ to SMS   │           │ Inbound SMS  │          │ Stream       │          │
 │  └──────────┘           └──────────────┘          └──────┬───────┘          │
-│                                                          │                   │
+│                                                          │                  │
 │                    ┌─────────────────────────────────────┼──────────┐       │
 │                    │                    │                │          │       │
 │                    ▼                    ▼                ▼          ▼       │
-│              ┌──────────┐        ┌──────────┐    ┌──────────┐ ┌──────────┐ │
-│              │ Response │        │ Analytics│    │ Archive  │ │ Event    │ │
-│              │ Handler  │        │ Processor│    │ Consumer │ │ Processor│ │
-│              └──────────┘        └──────────┘    └──────────┘ └──────────┘ │
-│                                                                              │
+│              ┌──────────┐        ┌──────────┐    ┌──────────┐ ┌──────────┐  │
+│              │ Response │        │ Analytics│    │ Archive  │ │ Event    │  │
+│              │ Handler  │        │ Processor│    │ Consumer │ │ Processor│  │
+│              └──────────┘        └──────────┘    └──────────┘ └──────────┘  │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -263,32 +263,32 @@ The system recognizes standard SMS keywords and processes them automatically:
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ Step 1: Normalize Response                                       │
-│ - Trim whitespace                                                │
-│ - Convert to uppercase                                           │
-│ - Extract first word if multiple                                 │
+│ Step 1: Normalize Response                                      │
+│ - Trim whitespace                                               │
+│ - Convert to uppercase                                          │
+│ - Extract first word if multiple                                │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ Step 2: Generate Subscriber ID                                   │
+│ Step 2: Generate Subscriber ID                                  │
 │ - Hash phone number: SHA256(phone)[:16]                         │
-│ - Ensures consistent ID across interactions                      │
+│ - Ensures consistent ID across interactions                     │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ Step 3: Store Response in DynamoDB                               │
-│ - subscriber_id (PK)                                             │
-│ - response_timestamp (SK)                                        │
-│ - response_text, normalized_response                             │
-│ - sentiment (positive/negative/neutral)                          │
-│ - TTL = current_time + 365 days                                  │
+│ Step 3: Store Response in DynamoDB                              │
+│ - subscriber_id (PK)                                            │
+│ - response_timestamp (SK)                                       │
+│ - response_text, normalized_response                            │
+│ - sentiment (positive/negative/neutral)                         │
+│ - TTL = current_time + 365 days                                 │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ Step 4: Check for Special Keywords                               │
+│ Step 4: Check for Special Keywords                              │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
                     ┌─────────────┼─────────────┐
@@ -464,25 +464,25 @@ cost_per_response = total_cost_usd / responses_received
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         DATA RETENTION TIMELINE                              │
+│                         DATA RETENTION TIMELINE                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
+│                                                                             │
 │  Day 0          Day 30         Day 90         Day 365        Day 365+       │
-│    │              │              │               │              │            │
-│    ▼              ▼              ▼               ▼              ▼            │
-│ ┌──────┐      ┌──────┐      ┌──────┐       ┌──────┐       ┌──────┐         │
+│    │              │              │               │              │           │
+│    ▼              ▼              ▼               ▼              ▼           │
+│ ┌───────┐      ┌──────┐      ┌──────┐       ┌──────┐       ┌──────┐         │
 │ │Kinesis│      │ S3   │      │ S3   │       │ S3   │       │Delete│         │
 │ │Stream │      │Stand-│      │Glacer│       │Deep  │       │ or   │         │
 │ │       │      │ard   │      │IR    │       │Archve│       │Archve│         │
-│ └──────┘      └──────┘      └──────┘       └──────┘       └──────┘         │
-│    │              │              │               │              │            │
-│    │              │              │               │              │            │
-│ ┌──────┐      ┌──────┐      ┌──────┐       ┌──────┐       ┌──────┐         │
-│ │Dynamo│      │Dynamo│      │Dynamo│       │Dynamo│       │ TTL  │         │
-│ │  DB  │      │  DB  │      │  DB  │       │  DB  │       │Expire│         │
-│ │Active│      │Active│      │Active│       │Active│       │      │         │
-│ └──────┘      └──────┘      └──────┘       └──────┘       └──────┘         │
-│                                                                              │
+│ └───────┘      └──────┘      └──────┘       └──────┘       └──────┘         │
+│    │              │              │               │              │           │
+│    │              │              │               │              │           │
+│ ┌──────┐      ┌──────┐      ┌──────┐       ┌──────┐       ┌──────┐          │
+│ │Dynamo│      │Dynamo│      │Dynamo│       │Dynamo│       │ TTL  │          │
+│ │  DB  │      │  DB  │      │  DB  │       │  DB  │       │Expire│          │
+│ │Active│      │Active│      │Active│       │Active│       │      │          │
+│ └──────┘      └──────┘      └──────┘       └──────┘       └──────┘          │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
