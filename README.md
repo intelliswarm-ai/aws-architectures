@@ -11,6 +11,7 @@ A collection of AWS architecture examples demonstrating best practices for cloud
 | [aws-serverless](./aws-serverless) | Multi-Tenant SaaS Platform (intelliswarm.ai) | Python 3.12 | Cognito, WAF, KMS, VPC, Bedrock, CloudTrail | [docs](./aws-serverless/docs/BUSINESS_LOGIC.md) |
 | [aws-kinesis](./aws-kinesis) | Real-Time GPS Tracking System | Python 3.12 | Kinesis Data Streams, Lambda, DynamoDB, S3 | [docs](./aws-kinesis/docs/BUSINESS_LOGIC.md) |
 | [aws-sms](./aws-sms) | SMS Marketing Campaign Platform | Python 3.12 | Pinpoint, Kinesis, Lambda, DynamoDB, S3 | [docs](./aws-sms/docs/BUSINESS_LOGIC.md) |
+| [aws-sqs](./aws-sqs) | Online Banking Platform with SQS Auto Scaling | Python 3.12 | SQS, EC2 Auto Scaling, DynamoDB, CloudWatch | [docs](./aws-sqs/docs/BUSINESS_LOGIC.md) |
 | [aws-call-sentiment](./aws-call-sentiment) | Call Center Sentiment Analysis | Python 3.12 | Comprehend, OpenSearch, Lambda, S3, API Gateway | [docs](./aws-call-sentiment/docs/BUSINESS_LOGIC.md) |
 | [aws-elasticbeanstalk](./aws-elasticbeanstalk) | Hybrid Enterprise Inventory System | Java 21 | Elastic Beanstalk, VPN Gateway, S3, CloudWatch | [docs](./aws-elasticbeanstalk/docs/BUSINESS_LOGIC.md) |
 
@@ -205,6 +206,46 @@ cd aws-sms
 
 ---
 
+## aws-sqs
+
+**Online Banking Platform with EC2 Auto Scaling** - A distributed system architecture using SQS-based scaling for transaction processing.
+
+### Use Case
+A commercial bank's next-generation online banking platform with highly variable transaction volumes. The system automatically scales EC2 instances based on SQS queue depth.
+
+### Architecture Highlights
+- **Amazon SQS** as transaction message buffer with DLQ
+- **EC2 Auto Scaling Group** with SQS-based scaling policy
+- **Target Tracking Scaling** on custom BacklogPerInstance metric
+- **API Gateway + Lambda** for transaction ingestion
+- **DynamoDB** for transaction storage and idempotency
+- **CloudWatch** custom metrics and dashboards
+
+### Tech Stack
+- Python 3.12 with type hints
+- Flask + Gunicorn for EC2 application
+- Pydantic for data validation
+- AWS Lambda Powertools (logging, tracing, metrics)
+- Terraform modular infrastructure (6 modules)
+
+### Key Features
+- **SQS-Based Scaling** - Scale out/in based on queue depth per instance
+- **Idempotency** - Duplicate transaction detection with DynamoDB
+- **Dead Letter Queue** - Failed message handling and investigation
+- **Multi-threaded Workers** - 4 worker threads per EC2 instance
+- **Health Checks** - ALB health checks for instance replacement
+
+### Quick Start
+```bash
+cd aws-sqs
+./scripts/build.sh
+./scripts/deploy.sh -e dev
+```
+
+[View full documentation](./aws-sqs/README.md) | [Business Logic](./aws-sqs/docs/BUSINESS_LOGIC.md)
+
+---
+
 ## aws-call-sentiment
 
 **Call Center Sentiment Analysis Platform** - Analyze customer service call transcripts using Amazon Comprehend with OpenSearch visualization.
@@ -321,7 +362,7 @@ All projects demonstrate:
 - Java 21 (Amazon Corretto recommended)
 - Maven 3.9+
 
-### aws-ml / aws-serverless / aws-kinesis / aws-sms / aws-call-sentiment (Python)
+### aws-ml / aws-serverless / aws-kinesis / aws-sms / aws-sqs / aws-call-sentiment (Python)
 - Python 3.12+
 - pip or uv for package management
 
@@ -356,6 +397,7 @@ Most projects use serverless, pay-per-use services. The aws-elasticbeanstalk pro
 | Comprehend | None | $0.0001/unit (sentiment) |
 | OpenSearch | None | ~$0.036/hour (t3.small) |
 | Elastic Beanstalk | None (EC2 costs) | ~$30/mo per t3.medium |
+| EC2 Auto Scaling | None (EC2 costs) | ~$30/mo per t3.medium |
 | VPN Gateway | None | $0.05/hour (~$36/mo) |
 
 **Tip**: Use `./scripts/deploy.sh --destroy` to tear down resources when not in use.
@@ -393,6 +435,13 @@ aws-examples/
 ├── aws-sms/                  # SMS Marketing Campaign Platform
 │   ├── src/                  # Python Lambda source
 │   ├── terraform/            # Infrastructure (8 modules)
+│   ├── tests/                # Unit and integration tests
+│   ├── docs/                 # Business logic documentation
+│   ├── scripts/              # Build/deploy scripts
+│   └── README.md
+├── aws-sqs/                  # Online Banking Platform with SQS Auto Scaling
+│   ├── src/                  # Python source (Lambda + EC2)
+│   ├── terraform/            # Infrastructure (6 modules)
 │   ├── tests/                # Unit and integration tests
 │   ├── docs/                 # Business logic documentation
 │   ├── scripts/              # Build/deploy scripts
