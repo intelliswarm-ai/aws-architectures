@@ -13,6 +13,8 @@ A collection of AWS architecture examples demonstrating best practices for cloud
 | [aws-sms](./aws-sms) | SMS Marketing Campaign Platform | Python 3.12 | Pinpoint, Kinesis, Lambda, DynamoDB, S3 | [docs](./aws-sms/docs/BUSINESS_LOGIC.md) |
 | [aws-sqs](./aws-sqs) | Online Banking Platform with SQS Auto Scaling | Python 3.12 | SQS, EC2 Auto Scaling, DynamoDB, CloudWatch | [docs](./aws-sqs/docs/BUSINESS_LOGIC.md) |
 | [aws-call-sentiment](./aws-call-sentiment) | Call Center Sentiment Analysis | Python 3.12 | Comprehend, OpenSearch, Lambda, S3, API Gateway | [docs](./aws-call-sentiment/docs/BUSINESS_LOGIC.md) |
+| [aws-lex](./aws-lex) | Airline Chatbot Platform | Python 3.12 | Lex V2, Lambda, DynamoDB, API Gateway | [docs](./aws-lex/docs/BUSINESS_LOGIC.md) |
+| [aws-athena](./aws-athena) | Data Lake Analytics Platform | Python 3.12 | Athena, Glue, Lake Formation, S3 | [docs](./aws-athena/docs/BUSINESS_LOGIC.md) |
 | [aws-elasticbeanstalk](./aws-elasticbeanstalk) | Hybrid Enterprise Inventory System | Java 21 | Elastic Beanstalk, VPN Gateway, S3, CloudWatch | [docs](./aws-elasticbeanstalk/docs/BUSINESS_LOGIC.md) |
 
 ---
@@ -287,6 +289,86 @@ cd aws-call-sentiment
 
 ---
 
+## aws-lex
+
+**Airline Chatbot Platform** - A conversational AI chatbot for flight bookings, booking updates, and check-ins using Amazon Lex.
+
+### Use Case
+An airline company wants to reduce call center volume by automating common requests through a 24/7 self-service chatbot accessible via web, mobile, and messaging platforms.
+
+### Architecture Highlights
+- **Amazon Lex V2** conversational AI with NLU
+- **Three Intents** - BookFlight, UpdateBooking, CheckIn
+- **Lambda Fulfillment** dialog validation and business logic
+- **DynamoDB** bookings, flights, and check-ins storage
+- **Multi-Channel** web widget, mobile app, Slack, Facebook
+- **Session Management** conversation context preservation
+
+### Tech Stack
+- Python 3.12 with type hints
+- Pydantic for data validation
+- AWS Lambda Powertools (logging, tracing, metrics)
+- Terraform modular infrastructure (6 modules)
+
+### Key Features
+- **Slot Validation** real-time input validation during dialog
+- **Flight Search** search and select from available flights
+- **Booking Management** create, update, cancel reservations
+- **Online Check-In** 24-hour window check-in with seat selection
+- **Fallback Handling** graceful handling of unrecognized inputs
+
+### Quick Start
+```bash
+cd aws-lex
+./scripts/build.sh
+./scripts/deploy.sh -e dev
+```
+
+[View full documentation](./aws-lex/README.md) | [Business Logic](./aws-lex/docs/BUSINESS_LOGIC.md)
+
+---
+
+## aws-athena
+
+**Data Lake Analytics Platform** - A serverless data lake with AWS Glue ETL, Lake Formation security, and Amazon Athena for high-performance analytics.
+
+### Use Case
+An application loading hundreds of JSON documents into Amazon S3 every hour. The data is transformed to Apache Parquet format with Snappy compression for optimal query performance, with AWS Lake Formation providing fine-grained access control.
+
+### Architecture Highlights
+- **JSON to Parquet** transformation via AWS Glue ETL
+- **AWS Lake Formation** for fine-grained data governance
+- **Amazon Athena** for serverless SQL analytics
+- **Time-based partitioning** (year/month/day/hour)
+- **Snappy compression** for 6x storage reduction
+- **Predicate pushdown** for efficient column-based queries
+
+### Tech Stack
+- Python 3.12 with type hints
+- Pydantic for data validation
+- AWS Lambda Powertools (logging, tracing, metrics)
+- PySpark for Glue ETL jobs
+- Terraform modular infrastructure (8 modules)
+- CloudFormation nested stacks
+
+### Key Features
+- **Columnar Storage** - 2x faster queries vs row-based formats
+- **Partition Projection** - No MSCK REPAIR TABLE needed
+- **Lake Formation Security** - lakeformation:GetDataAccess permission model
+- **Cost Controls** - BytesScannedCutoff per query
+- **Lambda Function URLs** - Direct HTTPS endpoints without API Gateway
+
+### Quick Start
+```bash
+cd aws-athena
+./scripts/build.sh
+./scripts/deploy.sh
+```
+
+[View full documentation](./aws-athena/README.md) | [Business Logic](./aws-athena/docs/BUSINESS_LOGIC.md)
+
+---
+
 ## aws-elasticbeanstalk
 
 **Hybrid Enterprise Inventory System** - A migrated full-stack Java application running on AWS Elastic Beanstalk with hybrid connectivity to an on-premises Oracle database.
@@ -362,7 +444,7 @@ All projects demonstrate:
 - Java 21 (Amazon Corretto recommended)
 - Maven 3.9+
 
-### aws-ml / aws-serverless / aws-kinesis / aws-sms / aws-sqs / aws-call-sentiment (Python)
+### aws-ml / aws-serverless / aws-kinesis / aws-sms / aws-sqs / aws-call-sentiment / aws-lex / aws-athena (Python)
 - Python 3.12+
 - pip or uv for package management
 
@@ -396,6 +478,10 @@ Most projects use serverless, pay-per-use services. The aws-elasticbeanstalk pro
 | Pinpoint | 100 SMS/month | $0.00645/SMS (US) |
 | Comprehend | None | $0.0001/unit (sentiment) |
 | OpenSearch | None | ~$0.036/hour (t3.small) |
+| Lex | None | $0.004/speech, $0.00075/text |
+| Athena | None | $5/TB scanned |
+| Glue ETL | None | $0.44/DPU-hour |
+| Lake Formation | None | No additional charge |
 | Elastic Beanstalk | None (EC2 costs) | ~$30/mo per t3.medium |
 | EC2 Auto Scaling | None (EC2 costs) | ~$30/mo per t3.medium |
 | VPN Gateway | None | $0.05/hour (~$36/mo) |
@@ -449,6 +535,22 @@ aws-examples/
 ├── aws-call-sentiment/       # Call Center Sentiment Analysis
 │   ├── src/                  # Python Lambda source
 │   ├── terraform/            # Infrastructure (7 modules)
+│   ├── tests/                # Unit and integration tests
+│   ├── docs/                 # Business logic documentation
+│   ├── scripts/              # Build/deploy scripts
+│   └── README.md
+├── aws-lex/                  # Airline Chatbot Platform
+│   ├── src/                  # Python Lambda source
+│   ├── terraform/            # Infrastructure (6 modules)
+│   ├── tests/                # Unit and integration tests
+│   ├── docs/                 # Business logic documentation
+│   ├── scripts/              # Build/deploy scripts
+│   └── README.md
+├── aws-athena/               # Data Lake Analytics Platform
+│   ├── src/                  # Python Lambda source
+│   ├── glue/                 # PySpark ETL scripts
+│   ├── terraform/            # Infrastructure (8 modules)
+│   ├── cloudformation/       # CloudFormation nested stacks
 │   ├── tests/                # Unit and integration tests
 │   ├── docs/                 # Business logic documentation
 │   ├── scripts/              # Build/deploy scripts

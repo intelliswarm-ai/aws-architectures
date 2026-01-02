@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EventBridge Scheduled Rules for ETL
+
+Parameters:
+  ProjectName:
+    Type: String
+  Environment:
+    Type: String
+  ScheduleExpression:
+    Type: String
+    Default: rate(1 hour)
+  ETLFunctionArn:
+    Type: String
+  ETLFunctionName:
+    Type: String
+
+Resources:
+  # Scheduled Rule for ETL
+  ETLScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-etl-schedule'
+      Description: Trigger ETL job on schedule
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Targets:
+        - Id: TriggerETLLambda
+          Arn: !Ref ETLFunctionArn
+          Input: |
+            {
+              "source": "scheduled",
+              "action": "start"
+            }
+
+  # Permission for EventBridge to invoke Lambda
+  ETLSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ETLFunctionName
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ETLScheduleRule.Arn
+
+Outputs:
+  ScheduleRuleArn:
+    Description: ARN of the EventBridge schedule rule
+    Value: !GetAtt ETLScheduleRule.Arn
+
+  ScheduleRuleName:
+    Description: Name of the EventBridge schedule rule
+    Value: !Ref ETLScheduleRule

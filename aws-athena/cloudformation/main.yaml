@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS Athena Data Lake Analytics Platform - Main Stack
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: athena-datalake
+    Description: Name of the project
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Environment name
+
+  GlueDatabaseName:
+    Type: String
+    Default: analytics_db
+    Description: Name of the Glue database
+
+  AthenaWorkgroupName:
+    Type: String
+    Default: analytics
+    Description: Name of the Athena workgroup
+
+  GlueETLJobName:
+    Type: String
+    Default: json-to-parquet
+    Description: Name of the Glue ETL job
+
+  GlueCrawlerName:
+    Type: String
+    Default: parquet-crawler
+    Description: Name of the Glue crawler
+
+  LambdaMemorySize:
+    Type: Number
+    Default: 256
+    Description: Memory size for Lambda functions
+
+  LambdaTimeout:
+    Type: Number
+    Default: 60
+    Description: Timeout for Lambda functions
+
+  AthenaQueryTimeout:
+    Type: Number
+    Default: 300
+    Description: Athena query timeout in seconds
+
+  EnableLakeFormation:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Enable Lake Formation for fine-grained access control
+
+  ETLScheduleExpression:
+    Type: String
+    Default: rate(1 hour)
+    Description: Schedule expression for ETL job
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, 'prod']
+  EnableLF: !Equals [!Ref EnableLakeFormation, 'true']
+
+Resources:
+  # S3 Buckets
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${AWS::AccountId}-cfn-templates.s3.${AWS::Region}.amazonaws.com/aws-athena/nested/s3.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # IAM Roles
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${AWS::AccountId}-cfn-templates.s3.${AWS::Region}.amazonaws.com/aws-athena/nested/iam.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        RawBucketArn: !GetAtt S3Stack.Outputs.RawBucketArn
+        ProcessedBucketArn: !GetAtt S3Stack.Outputs.ProcessedBucketArn
+        ResultsBucketArn: !GetAtt S3Stack.Outputs.ResultsBucketArn
+        EnableLakeFormation: !Ref EnableLakeFormation
+
+  # Glue Resources
+  GlueStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: IAMStack
+    Properties:
+      TemplateURL: !Sub 'https://${AWS::AccountId}-cfn-templates.s3.${AWS::Region}.amazonaws.com/aws-athena/nested/glue.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        DatabaseName: !Ref GlueDatabaseName
+        ETLJobName: !Ref GlueETLJobName
+        CrawlerName: !Ref GlueCrawlerName
+        GlueRoleArn: !GetAtt IAMStack.Outputs.GlueRoleArn
+        RawBucketName: !GetAtt S3Stack.Outputs.RawBucketName
+        ProcessedBucketName: !GetAtt S3Stack.Outputs.ProcessedBucketName
+        ResultsBucketName: !GetAtt S3Stack.Outputs.ResultsBucketName
+
+  # Athena Resources
+  AthenaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: GlueStack
+    Properties:
+      TemplateURL: !Sub 'https://${AWS::AccountId}-cfn-templates.s3.${AWS::Region}.amazonaws.com/aws-athena/nested/athena.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        WorkgroupName: !Ref AthenaWorkgroupName
+        ResultsBucketName: !GetAtt S3Stack.Outputs.ResultsBucketName
+        DatabaseName: !Ref GlueDatabaseName
+        QueryTimeout: !Ref AthenaQueryTimeout
+
+  # Lambda Functions
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+      - S3Stack
+    Properties:
+      TemplateURL: !Sub 'https://${AWS::AccountId}-cfn-templates.s3.${AWS::Region}.amazonaws.com/aws-athena/nested/lambda.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        LambdaRoleArn: !GetAtt IAMStack.Outputs.LambdaRoleArn
+        MemorySize: !Ref LambdaMemorySize
+        Timeout: !Ref LambdaTimeout
+        RawBucketName: !GetAtt S3Stack.Outputs.RawBucketName
+        ProcessedBucketName: !GetAtt S3Stack.Outputs.ProcessedBucketName
+        ResultsBucketName: !GetAtt S3Stack.Outputs.ResultsBucketName
+        GlueDatabase: !Ref GlueDatabaseName
+        AthenaWorkgroup: !Ref AthenaWorkgroupName
+        GlueETLJobName: !Ref GlueETLJobName
+        GlueCrawlerName: !Ref GlueCrawlerName
+        AthenaQueryTimeout: !Ref AthenaQueryTimeout
+
+  # Lake Formation (conditional)
+  LakeFormationStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: EnableLF
+    DependsOn:
+      - S3Stack
+      - GlueStack
+      - IAMStack
+    Properties:
+      TemplateURL: !Sub 'https://${AWS::AccountId}-cfn-templates.s3.${AWS::Region}.amazonaws.com/aws-athena/nested/lakeformation.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        RawBucketArn: !GetAtt S3Stack.Outputs.RawBucketArn
+        ProcessedBucketArn: !GetAtt S3Stack.Outputs.ProcessedBucketArn
+        DatabaseName: !Ref GlueDatabaseName
+        GlueRoleArn: !GetAtt IAMStack.Outputs.GlueRoleArn
+        LambdaRoleArn: !GetAtt IAMStack.Outputs.LambdaRoleArn
+
+  # CloudWatch Monitoring
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: LambdaStack
+    Properties:
+      TemplateURL: !Sub 'https://${AWS::AccountId}-cfn-templates.s3.${AWS::Region}.amazonaws.com/aws-athena/nested/cloudwatch.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        IngestFunctionName: !GetAtt LambdaStack.Outputs.IngestFunctionName
+        ETLFunctionName: !GetAtt LambdaStack.Outputs.ETLFunctionName
+        QueryFunctionName: !GetAtt LambdaStack.Outputs.QueryFunctionName
+        APIFunctionName: !GetAtt LambdaStack.Outputs.APIFunctionName
+        GlueJobName: !Ref GlueETLJobName
+        AthenaWorkgroup: !Ref AthenaWorkgroupName
+
+  # EventBridge Schedule
+  EventBridgeStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: LambdaStack
+    Properties:
+      TemplateURL: !Sub 'https://${AWS::AccountId}-cfn-templates.s3.${AWS::Region}.amazonaws.com/aws-athena/nested/eventbridge.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        ScheduleExpression: !Ref ETLScheduleExpression
+        ETLFunctionArn: !GetAtt LambdaStack.Outputs.ETLFunctionArn
+        ETLFunctionName: !GetAtt LambdaStack.Outputs.ETLFunctionName
+
+Outputs:
+  RawBucketName:
+    Description: Name of the raw data S3 bucket
+    Value: !GetAtt S3Stack.Outputs.RawBucketName
+    Export:
+      Name: !Sub '${AWS::StackName}-RawBucket'
+
+  ProcessedBucketName:
+    Description: Name of the processed data S3 bucket
+    Value: !GetAtt S3Stack.Outputs.ProcessedBucketName
+    Export:
+      Name: !Sub '${AWS::StackName}-ProcessedBucket'
+
+  ResultsBucketName:
+    Description: Name of the results S3 bucket
+    Value: !GetAtt S3Stack.Outputs.ResultsBucketName
+    Export:
+      Name: !Sub '${AWS::StackName}-ResultsBucket'
+
+  GlueDatabaseName:
+    Description: Name of the Glue database
+    Value: !Ref GlueDatabaseName
+    Export:
+      Name: !Sub '${AWS::StackName}-GlueDatabase'
+
+  AthenaWorkgroupName:
+    Description: Name of the Athena workgroup
+    Value: !Ref AthenaWorkgroupName
+    Export:
+      Name: !Sub '${AWS::StackName}-AthenaWorkgroup'
+
+  IngestFunctionUrl:
+    Description: URL of the ingest Lambda function
+    Value: !GetAtt LambdaStack.Outputs.IngestFunctionUrl
+
+  QueryFunctionUrl:
+    Description: URL of the query Lambda function
+    Value: !GetAtt LambdaStack.Outputs.QueryFunctionUrl
+
+  APIFunctionUrl:
+    Description: URL of the API Lambda function
+    Value: !GetAtt LambdaStack.Outputs.APIFunctionUrl

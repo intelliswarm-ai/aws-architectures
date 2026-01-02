@@ -1,0 +1,225 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Glue Database, Tables, ETL Job, and Crawler
+
+Parameters:
+  ProjectName:
+    Type: String
+  Environment:
+    Type: String
+  DatabaseName:
+    Type: String
+  ETLJobName:
+    Type: String
+  CrawlerName:
+    Type: String
+  GlueRoleArn:
+    Type: String
+  RawBucketName:
+    Type: String
+  ProcessedBucketName:
+    Type: String
+  ResultsBucketName:
+    Type: String
+
+Resources:
+  # Glue Database
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref DatabaseName
+        Description: !Sub 'Data lake analytics database for ${ProjectName}'
+
+  # Raw Events Table (JSON)
+  RawEventsTable:
+    Type: AWS::Glue::Table
+    DependsOn: GlueDatabase
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref DatabaseName
+      TableInput:
+        Name: raw_events
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          classification: json
+          projection.enabled: 'true'
+          projection.year.type: integer
+          projection.year.range: '2020,2030'
+          projection.month.type: integer
+          projection.month.range: '1,12'
+          projection.month.digits: '2'
+          projection.day.type: integer
+          projection.day.range: '1,31'
+          projection.day.digits: '2'
+          projection.hour.type: integer
+          projection.hour.range: '0,23'
+          projection.hour.digits: '2'
+          storage.location.template: !Sub 's3://${RawBucketName}/raw/year=${!year}/month=${!month}/day=${!day}/hour=${!hour}'
+        StorageDescriptor:
+          Location: !Sub 's3://${RawBucketName}/raw/'
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.openx.data.jsonserde.JsonSerDe
+          Columns:
+            - Name: event_id
+              Type: string
+            - Name: timestamp
+              Type: timestamp
+            - Name: event_type
+              Type: string
+            - Name: user_id
+              Type: string
+            - Name: session_id
+              Type: string
+            - Name: properties
+              Type: 'map<string,string>'
+            - Name: geo
+              Type: 'struct<country:string,city:string,lat:double,lon:double>'
+        PartitionKeys:
+          - Name: year
+            Type: string
+          - Name: month
+            Type: string
+          - Name: day
+            Type: string
+          - Name: hour
+            Type: string
+
+  # Processed Events Table (Parquet)
+  EventsTable:
+    Type: AWS::Glue::Table
+    DependsOn: GlueDatabase
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref DatabaseName
+      TableInput:
+        Name: events
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          classification: parquet
+          parquet.compression: SNAPPY
+          projection.enabled: 'true'
+          projection.year.type: integer
+          projection.year.range: '2020,2030'
+          projection.month.type: integer
+          projection.month.range: '1,12'
+          projection.month.digits: '2'
+          projection.day.type: integer
+          projection.day.range: '1,31'
+          projection.day.digits: '2'
+          projection.hour.type: integer
+          projection.hour.range: '0,23'
+          projection.hour.digits: '2'
+          storage.location.template: !Sub 's3://${ProcessedBucketName}/processed/year=${!year}/month=${!month}/day=${!day}/hour=${!hour}'
+        StorageDescriptor:
+          Location: !Sub 's3://${ProcessedBucketName}/processed/'
+          InputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+            Parameters:
+              serialization.format: '1'
+          Columns:
+            - Name: event_id
+              Type: string
+            - Name: timestamp
+              Type: timestamp
+            - Name: event_type
+              Type: string
+            - Name: user_id
+              Type: string
+            - Name: session_id
+              Type: string
+            - Name: properties
+              Type: 'map<string,string>'
+            - Name: geo
+              Type: 'struct<country:string,city:string,lat:double,lon:double>'
+        PartitionKeys:
+          - Name: year
+            Type: string
+          - Name: month
+            Type: string
+          - Name: day
+            Type: string
+          - Name: hour
+            Type: string
+
+  # Glue ETL Job
+  ETLJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Ref ETLJobName
+      Description: Transform JSON to Parquet with Snappy compression
+      Role: !Ref GlueRoleArn
+      GlueVersion: '4.0'
+      WorkerType: G.1X
+      NumberOfWorkers: 2
+      Timeout: 60
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub 's3://${ResultsBucketName}/glue-scripts/etl_job.py'
+        PythonVersion: '3'
+      DefaultArguments:
+        '--job-language': python
+        '--enable-metrics': 'true'
+        '--enable-continuous-cloudwatch-log': 'true'
+        '--enable-glue-datacatalog': 'true'
+        '--source_path': !Sub 's3://${RawBucketName}/raw/'
+        '--target_path': !Sub 's3://${ProcessedBucketName}/processed/'
+        '--database': !Ref DatabaseName
+        '--table_name': events
+        '--partition_year': '2024'
+        '--partition_month': '01'
+        '--partition_day': '01'
+        '--partition_hour': '00'
+      ExecutionProperty:
+        MaxConcurrentRuns: 2
+
+  # Glue Crawler
+  ParquetCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Ref CrawlerName
+      Role: !Ref GlueRoleArn
+      DatabaseName: !Ref DatabaseName
+      Targets:
+        S3Targets:
+          - Path: !Sub 's3://${ProcessedBucketName}/processed/'
+      SchemaChangePolicy:
+        DeleteBehavior: LOG
+        UpdateBehavior: UPDATE_IN_DATABASE
+      Configuration: |
+        {
+          "Version": 1.0,
+          "Grouping": {
+            "TableGroupingPolicy": "CombineCompatibleSchemas"
+          },
+          "CrawlerOutput": {
+            "Partitions": {
+              "AddOrUpdateBehavior": "InheritFromTable"
+            }
+          }
+        }
+
+Outputs:
+  DatabaseName:
+    Description: Name of the Glue database
+    Value: !Ref DatabaseName
+
+  ETLJobName:
+    Description: Name of the ETL job
+    Value: !Ref ETLJob
+
+  CrawlerName:
+    Description: Name of the crawler
+    Value: !Ref ParquetCrawler
+
+  RawTableName:
+    Description: Name of the raw events table
+    Value: raw_events
+
+  EventsTableName:
+    Description: Name of the processed events table
+    Value: events

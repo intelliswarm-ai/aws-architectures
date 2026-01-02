@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lake Formation Data Governance
+
+Parameters:
+  ProjectName:
+    Type: String
+  Environment:
+    Type: String
+  RawBucketArn:
+    Type: String
+  ProcessedBucketArn:
+    Type: String
+  DatabaseName:
+    Type: String
+  GlueRoleArn:
+    Type: String
+  LambdaRoleArn:
+    Type: String
+
+Resources:
+  # Register Raw Data Location
+  RawDataLocation:
+    Type: AWS::LakeFormation::Resource
+    Properties:
+      ResourceArn: !Ref RawBucketArn
+      UseServiceLinkedRole: true
+
+  # Register Processed Data Location
+  ProcessedDataLocation:
+    Type: AWS::LakeFormation::Resource
+    Properties:
+      ResourceArn: !Ref ProcessedBucketArn
+      UseServiceLinkedRole: true
+
+  # Grant Glue Role Database Permissions
+  GlueDatabasePermissions:
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier: !Ref GlueRoleArn
+      Permissions:
+        - CREATE_TABLE
+        - DESCRIBE
+        - ALTER
+        - DROP
+      Resource:
+        DatabaseResource:
+          Name: !Ref DatabaseName
+
+  # Grant Glue Role Table Permissions
+  GlueTablePermissions:
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier: !Ref GlueRoleArn
+      Permissions:
+        - SELECT
+        - INSERT
+        - DELETE
+        - DESCRIBE
+        - ALTER
+      Resource:
+        TableResource:
+          DatabaseName: !Ref DatabaseName
+          TableWildcard: {}
+
+  # Grant Glue Role Raw Data Location Access
+  GlueRawLocationPermissions:
+    Type: AWS::LakeFormation::Permissions
+    DependsOn: RawDataLocation
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier: !Ref GlueRoleArn
+      Permissions:
+        - DATA_LOCATION_ACCESS
+      Resource:
+        DataLocationResource:
+          S3Resource: !Ref RawBucketArn
+
+  # Grant Glue Role Processed Data Location Access
+  GlueProcessedLocationPermissions:
+    Type: AWS::LakeFormation::Permissions
+    DependsOn: ProcessedDataLocation
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier: !Ref GlueRoleArn
+      Permissions:
+        - DATA_LOCATION_ACCESS
+      Resource:
+        DataLocationResource:
+          S3Resource: !Ref ProcessedBucketArn
+
+  # Grant Lambda Role Database Permissions
+  LambdaDatabasePermissions:
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier: !Ref LambdaRoleArn
+      Permissions:
+        - DESCRIBE
+      Resource:
+        DatabaseResource:
+          Name: !Ref DatabaseName
+
+  # Grant Lambda Role Table SELECT Permissions
+  LambdaTablePermissions:
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier: !Ref LambdaRoleArn
+      Permissions:
+        - SELECT
+        - DESCRIBE
+      Resource:
+        TableResource:
+          DatabaseName: !Ref DatabaseName
+          TableWildcard: {}
+
+  # LF-Tag for Data Sensitivity
+  DataSensitivityTag:
+    Type: AWS::LakeFormation::Tag
+    Properties:
+      TagKey: DataSensitivity
+      TagValues:
+        - public
+        - internal
+        - confidential
+        - restricted
+
+  # LF-Tag for Data Domain
+  DataDomainTag:
+    Type: AWS::LakeFormation::Tag
+    Properties:
+      TagKey: DataDomain
+      TagValues:
+        - analytics
+        - events
+        - users
+        - transactions
+
+Outputs:
+  DataSensitivityTagKey:
+    Description: Key of the data sensitivity LF-Tag
+    Value: DataSensitivity
+
+  DataDomainTagKey:
+    Description: Key of the data domain LF-Tag
+    Value: DataDomain

@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 Buckets for Data Lake Storage
+
+Parameters:
+  ProjectName:
+    Type: String
+  Environment:
+    Type: String
+
+Resources:
+  # Raw Data Bucket
+  RawBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-raw-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToGlacier
+            Status: Enabled
+            Prefix: raw/
+            Transitions:
+              - StorageClass: GLACIER
+                TransitionInDays: 90
+            ExpirationInDays: 365
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-raw'
+        - Key: Purpose
+          Value: Raw JSON data ingestion
+
+  # Processed Data Bucket
+  ProcessedBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-processed-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToIA
+            Status: Enabled
+            Prefix: processed/
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+              - StorageClass: GLACIER
+                TransitionInDays: 180
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-processed'
+        - Key: Purpose
+          Value: Processed Parquet data
+
+  # Results Bucket
+  ResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-results-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanupQueryResults
+            Status: Enabled
+            Prefix: athena-results/
+            ExpirationInDays: 7
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-results'
+        - Key: Purpose
+          Value: Athena query results and scripts
+
+Outputs:
+  RawBucketName:
+    Description: Name of the raw data bucket
+    Value: !Ref RawBucket
+
+  RawBucketArn:
+    Description: ARN of the raw data bucket
+    Value: !GetAtt RawBucket.Arn
+
+  ProcessedBucketName:
+    Description: Name of the processed data bucket
+    Value: !Ref ProcessedBucket
+
+  ProcessedBucketArn:
+    Description: ARN of the processed data bucket
+    Value: !GetAtt ProcessedBucket.Arn
+
+  ResultsBucketName:
+    Description: Name of the results bucket
+    Value: !Ref ResultsBucket
+
+  ResultsBucketArn:
+    Description: ARN of the results bucket
+    Value: !GetAtt ResultsBucket.Arn

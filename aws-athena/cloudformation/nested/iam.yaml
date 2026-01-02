@@ -1,0 +1,170 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IAM Roles and Policies for Data Lake
+
+Parameters:
+  ProjectName:
+    Type: String
+  Environment:
+    Type: String
+  RawBucketArn:
+    Type: String
+  ProcessedBucketArn:
+    Type: String
+  ResultsBucketArn:
+    Type: String
+  EnableLakeFormation:
+    Type: String
+    Default: 'true'
+
+Conditions:
+  EnableLF: !Equals [!Ref EnableLakeFormation, 'true']
+
+Resources:
+  # Lambda Execution Role
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Ref RawBucketArn
+                  - !Sub '${RawBucketArn}/*'
+                  - !Ref ProcessedBucketArn
+                  - !Sub '${ProcessedBucketArn}/*'
+                  - !Ref ResultsBucketArn
+                  - !Sub '${ResultsBucketArn}/*'
+        - PolicyName: AthenaAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - athena:StartQueryExecution
+                  - athena:StopQueryExecution
+                  - athena:GetQueryExecution
+                  - athena:GetQueryResults
+                  - athena:ListQueryExecutions
+                  - athena:GetWorkGroup
+                Resource: '*'
+        - PolicyName: GlueAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:GetDatabase
+                  - glue:GetTable
+                  - glue:GetTables
+                  - glue:GetPartition
+                  - glue:GetPartitions
+                  - glue:BatchCreatePartition
+                  - glue:CreatePartition
+                  - glue:StartJobRun
+                  - glue:GetJobRun
+                  - glue:GetJobRuns
+                  - glue:BatchStopJobRun
+                  - glue:StartCrawler
+                  - glue:GetCrawler
+                  - glue:StopCrawler
+                Resource: '*'
+
+  # Lake Formation GetDataAccess policy (conditional)
+  LambdaLakeFormationPolicy:
+    Type: AWS::IAM::Policy
+    Condition: EnableLF
+    Properties:
+      PolicyName: LakeFormationAccess
+      Roles:
+        - !Ref LambdaRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - lakeformation:GetDataAccess
+            Resource: '*'
+
+  # Glue Service Role
+  GlueRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-glue-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Ref RawBucketArn
+                  - !Sub '${RawBucketArn}/*'
+                  - !Ref ProcessedBucketArn
+                  - !Sub '${ProcessedBucketArn}/*'
+                  - !Ref ResultsBucketArn
+                  - !Sub '${ResultsBucketArn}/*'
+
+  # Lake Formation GetDataAccess for Glue (conditional)
+  GlueLakeFormationPolicy:
+    Type: AWS::IAM::Policy
+    Condition: EnableLF
+    Properties:
+      PolicyName: LakeFormationAccess
+      Roles:
+        - !Ref GlueRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - lakeformation:GetDataAccess
+            Resource: '*'
+
+Outputs:
+  LambdaRoleArn:
+    Description: ARN of the Lambda execution role
+    Value: !GetAtt LambdaRole.Arn
+
+  LambdaRoleName:
+    Description: Name of the Lambda execution role
+    Value: !Ref LambdaRole
+
+  GlueRoleArn:
+    Description: ARN of the Glue service role
+    Value: !GetAtt GlueRole.Arn
+
+  GlueRoleName:
+    Description: Name of the Glue service role
+    Value: !Ref GlueRole

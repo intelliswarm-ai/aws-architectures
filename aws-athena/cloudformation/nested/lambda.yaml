@@ -1,0 +1,281 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lambda Functions for Data Lake Operations
+
+Parameters:
+  ProjectName:
+    Type: String
+  Environment:
+    Type: String
+  LambdaRoleArn:
+    Type: String
+  MemorySize:
+    Type: Number
+    Default: 256
+  Timeout:
+    Type: Number
+    Default: 60
+  RawBucketName:
+    Type: String
+  ProcessedBucketName:
+    Type: String
+  ResultsBucketName:
+    Type: String
+  GlueDatabase:
+    Type: String
+  AthenaWorkgroup:
+    Type: String
+  GlueETLJobName:
+    Type: String
+  GlueCrawlerName:
+    Type: String
+  AthenaQueryTimeout:
+    Type: Number
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, 'prod']
+
+Resources:
+  # Lambda Layer for Dependencies
+  DependenciesLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub '${ProjectName}-${Environment}-dependencies'
+      Description: Shared dependencies for data lake functions
+      CompatibleRuntimes:
+        - python3.11
+      Content:
+        S3Bucket: !Ref ResultsBucketName
+        S3Key: lambda/layer.zip
+
+  # Ingest Function
+  IngestFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-ingest'
+      Runtime: python3.11
+      Handler: src.handlers.ingest_handler.handler
+      Role: !Ref LambdaRoleArn
+      MemorySize: !Ref MemorySize
+      Timeout: !Ref Timeout
+      Layers:
+        - !Ref DependenciesLayer
+      Code:
+        S3Bucket: !Ref ResultsBucketName
+        S3Key: lambda/ingest.zip
+      Environment:
+        Variables:
+          AWS_REGION_NAME: !Ref AWS::Region
+          RAW_BUCKET: !Ref RawBucketName
+          PROCESSED_BUCKET: !Ref ProcessedBucketName
+          RESULTS_BUCKET: !Ref ResultsBucketName
+          GLUE_DATABASE: !Ref GlueDatabase
+          ATHENA_WORKGROUP: !Ref AthenaWorkgroup
+          GLUE_ETL_JOB_NAME: !Ref GlueETLJobName
+          GLUE_CRAWLER_NAME: !Ref GlueCrawlerName
+          ATHENA_QUERY_TIMEOUT: !Ref AthenaQueryTimeout
+          LOG_LEVEL: INFO
+
+  IngestFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref IngestFunction
+      AuthType: !If [IsProd, 'AWS_IAM', 'NONE']
+      Cors:
+        AllowCredentials: true
+        AllowOrigins: ['*']
+        AllowMethods: [POST]
+        AllowHeaders: [content-type, x-amz-date, authorization]
+        ExposeHeaders: [x-amz-request-id]
+        MaxAge: 86400
+
+  IngestFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IngestFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: !If [IsProd, 'AWS_IAM', 'NONE']
+
+  # ETL Function
+  ETLFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-etl'
+      Runtime: python3.11
+      Handler: src.handlers.etl_handler.handler
+      Role: !Ref LambdaRoleArn
+      MemorySize: !Ref MemorySize
+      Timeout: 300
+      Layers:
+        - !Ref DependenciesLayer
+      Code:
+        S3Bucket: !Ref ResultsBucketName
+        S3Key: lambda/etl.zip
+      Environment:
+        Variables:
+          AWS_REGION_NAME: !Ref AWS::Region
+          RAW_BUCKET: !Ref RawBucketName
+          PROCESSED_BUCKET: !Ref ProcessedBucketName
+          RESULTS_BUCKET: !Ref ResultsBucketName
+          GLUE_DATABASE: !Ref GlueDatabase
+          ATHENA_WORKGROUP: !Ref AthenaWorkgroup
+          GLUE_ETL_JOB_NAME: !Ref GlueETLJobName
+          GLUE_CRAWLER_NAME: !Ref GlueCrawlerName
+          LOG_LEVEL: INFO
+
+  ETLFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref ETLFunction
+      AuthType: 'AWS_IAM'
+      Cors:
+        AllowCredentials: true
+        AllowOrigins: ['*']
+        AllowMethods: [POST]
+        AllowHeaders: [content-type, x-amz-date, authorization]
+        MaxAge: 86400
+
+  # Query Function
+  QueryFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-query'
+      Runtime: python3.11
+      Handler: src.handlers.query_handler.handler
+      Role: !Ref LambdaRoleArn
+      MemorySize: !Ref MemorySize
+      Timeout: !Ref Timeout
+      Layers:
+        - !Ref DependenciesLayer
+      Code:
+        S3Bucket: !Ref ResultsBucketName
+        S3Key: lambda/query.zip
+      Environment:
+        Variables:
+          AWS_REGION_NAME: !Ref AWS::Region
+          RAW_BUCKET: !Ref RawBucketName
+          PROCESSED_BUCKET: !Ref ProcessedBucketName
+          RESULTS_BUCKET: !Ref ResultsBucketName
+          GLUE_DATABASE: !Ref GlueDatabase
+          ATHENA_WORKGROUP: !Ref AthenaWorkgroup
+          ATHENA_QUERY_TIMEOUT: !Ref AthenaQueryTimeout
+          LOG_LEVEL: INFO
+
+  QueryFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref QueryFunction
+      AuthType: !If [IsProd, 'AWS_IAM', 'NONE']
+      Cors:
+        AllowCredentials: true
+        AllowOrigins: ['*']
+        AllowMethods: [GET, POST]
+        AllowHeaders: [content-type, x-amz-date, authorization]
+        ExposeHeaders: [x-amz-request-id]
+        MaxAge: 86400
+
+  QueryFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref QueryFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: !If [IsProd, 'AWS_IAM', 'NONE']
+
+  # API Function
+  APIFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-api'
+      Runtime: python3.11
+      Handler: src.handlers.api_handler.handler
+      Role: !Ref LambdaRoleArn
+      MemorySize: !Ref MemorySize
+      Timeout: !Ref Timeout
+      Layers:
+        - !Ref DependenciesLayer
+      Code:
+        S3Bucket: !Ref ResultsBucketName
+        S3Key: lambda/api.zip
+      Environment:
+        Variables:
+          AWS_REGION_NAME: !Ref AWS::Region
+          RAW_BUCKET: !Ref RawBucketName
+          PROCESSED_BUCKET: !Ref ProcessedBucketName
+          RESULTS_BUCKET: !Ref ResultsBucketName
+          GLUE_DATABASE: !Ref GlueDatabase
+          ATHENA_WORKGROUP: !Ref AthenaWorkgroup
+          GLUE_ETL_JOB_NAME: !Ref GlueETLJobName
+          GLUE_CRAWLER_NAME: !Ref GlueCrawlerName
+          ATHENA_QUERY_TIMEOUT: !Ref AthenaQueryTimeout
+          LOG_LEVEL: INFO
+
+  APIFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref APIFunction
+      AuthType: !If [IsProd, 'AWS_IAM', 'NONE']
+      Cors:
+        AllowCredentials: true
+        AllowOrigins: ['*']
+        AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
+        AllowHeaders: [content-type, x-amz-date, authorization, x-api-key]
+        ExposeHeaders: [x-amz-request-id]
+        MaxAge: 86400
+
+  APIFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref APIFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: !If [IsProd, 'AWS_IAM', 'NONE']
+
+Outputs:
+  IngestFunctionArn:
+    Description: ARN of the ingest function
+    Value: !GetAtt IngestFunction.Arn
+
+  IngestFunctionName:
+    Description: Name of the ingest function
+    Value: !Ref IngestFunction
+
+  IngestFunctionUrl:
+    Description: URL of the ingest function
+    Value: !GetAtt IngestFunctionUrl.FunctionUrl
+
+  ETLFunctionArn:
+    Description: ARN of the ETL function
+    Value: !GetAtt ETLFunction.Arn
+
+  ETLFunctionName:
+    Description: Name of the ETL function
+    Value: !Ref ETLFunction
+
+  ETLFunctionUrl:
+    Description: URL of the ETL function
+    Value: !GetAtt ETLFunctionUrl.FunctionUrl
+
+  QueryFunctionArn:
+    Description: ARN of the query function
+    Value: !GetAtt QueryFunction.Arn
+
+  QueryFunctionName:
+    Description: Name of the query function
+    Value: !Ref QueryFunction
+
+  QueryFunctionUrl:
+    Description: URL of the query function
+    Value: !GetAtt QueryFunctionUrl.FunctionUrl
+
+  APIFunctionArn:
+    Description: ARN of the API function
+    Value: !GetAtt APIFunction.Arn
+
+  APIFunctionName:
+    Description: Name of the API function
+    Value: !Ref APIFunction
+
+  APIFunctionUrl:
+    Description: URL of the API function
+    Value: !GetAtt APIFunctionUrl.FunctionUrl

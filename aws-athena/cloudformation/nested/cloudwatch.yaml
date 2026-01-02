@@ -1,0 +1,206 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudWatch Monitoring and Logging
+
+Parameters:
+  ProjectName:
+    Type: String
+  Environment:
+    Type: String
+  IngestFunctionName:
+    Type: String
+  ETLFunctionName:
+    Type: String
+  QueryFunctionName:
+    Type: String
+  APIFunctionName:
+    Type: String
+  GlueJobName:
+    Type: String
+  AthenaWorkgroup:
+    Type: String
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+
+Resources:
+  # Log Groups
+  IngestLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${IngestFunctionName}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  ETLLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ETLFunctionName}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  QueryLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${QueryFunctionName}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  APILogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${APIFunctionName}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  GlueLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws-glue/jobs/${GlueJobName}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  # Dashboard
+  DataLakeDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-${Environment}-datalake'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Invocations",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${IngestFunctionName}", {"stat": "Sum"}],
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${ETLFunctionName}", {"stat": "Sum"}],
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${QueryFunctionName}", {"stat": "Sum"}],
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${APIFunctionName}", {"stat": "Sum"}]
+                ],
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Errors",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["AWS/Lambda", "Errors", "FunctionName", "${IngestFunctionName}", {"stat": "Sum"}],
+                  ["AWS/Lambda", "Errors", "FunctionName", "${ETLFunctionName}", {"stat": "Sum"}],
+                  ["AWS/Lambda", "Errors", "FunctionName", "${QueryFunctionName}", {"stat": "Sum"}],
+                  ["AWS/Lambda", "Errors", "FunctionName", "${APIFunctionName}", {"stat": "Sum"}]
+                ],
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Duration",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["AWS/Lambda", "Duration", "FunctionName", "${IngestFunctionName}", {"stat": "Average"}],
+                  ["AWS/Lambda", "Duration", "FunctionName", "${ETLFunctionName}", {"stat": "Average"}],
+                  ["AWS/Lambda", "Duration", "FunctionName", "${QueryFunctionName}", {"stat": "Average"}],
+                  ["AWS/Lambda", "Duration", "FunctionName", "${APIFunctionName}", {"stat": "Average"}]
+                ],
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Athena Query Metrics",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["AWS/Athena", "TotalExecutionTime", "WorkGroup", "${AthenaWorkgroup}", {"stat": "Average"}],
+                  ["AWS/Athena", "ProcessedBytes", "WorkGroup", "${AthenaWorkgroup}", {"stat": "Sum"}]
+                ],
+                "period": 300
+              }
+            }
+          ]
+        }
+
+  # Alarms
+  IngestErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${IngestFunctionName}-errors'
+      AlarmDescription: Ingest function errors exceeded threshold
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref IngestFunctionName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+
+  ETLErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ETLFunctionName}-errors'
+      AlarmDescription: ETL function errors exceeded threshold
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ETLFunctionName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+
+  QueryErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${QueryFunctionName}-errors'
+      AlarmDescription: Query function errors exceeded threshold
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref QueryFunctionName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+
+  AthenaDataScannedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-athena-data-scanned'
+      AlarmDescription: Athena data scanned exceeded threshold (cost control)
+      Namespace: AWS/Athena
+      MetricName: ProcessedBytes
+      Dimensions:
+        - Name: WorkGroup
+          Value: !Ref AthenaWorkgroup
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 10737418240  # 10 GB
+      ComparisonOperator: GreaterThanThreshold
+
+Outputs:
+  DashboardName:
+    Description: Name of the CloudWatch dashboard
+    Value: !Ref DataLakeDashboard
