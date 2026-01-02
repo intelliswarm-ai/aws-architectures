@@ -1,0 +1,250 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Hybrid Cloud Platform - Elastic Beanstalk Application'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  VPCId:
+    Type: String
+  PublicSubnet1:
+    Type: String
+  PublicSubnet2:
+    Type: String
+  PrivateSubnet1:
+    Type: String
+  PrivateSubnet2:
+    Type: String
+  ALBSecurityGroup:
+    Type: String
+  EC2SecurityGroup:
+    Type: String
+  InstanceProfileArn:
+    Type: String
+  ServiceRoleArn:
+    Type: String
+  JavaVersion:
+    Type: String
+  InstanceType:
+    Type: String
+  MinInstances:
+    Type: Number
+  MaxInstances:
+    Type: Number
+  CertificateArn:
+    Type: String
+  OracleHost:
+    Type: String
+  OraclePort:
+    Type: Number
+  OracleServiceName:
+    Type: String
+  ReportsBucketName:
+    Type: String
+
+Conditions:
+  HasCertificate: !Not [!Equals [!Ref CertificateArn, '']]
+
+Resources:
+  # Elastic Beanstalk Application
+  Application:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties:
+      ApplicationName: !Sub '${ProjectName}-${Environment}'
+      Description: Hybrid Cloud Spring Boot Application
+
+  # Application Version (placeholder - update with actual artifact)
+  ApplicationVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref Application
+      Description: Initial version
+      SourceBundle:
+        S3Bucket: !Sub 'elasticbeanstalk-samples-${AWS::Region}'
+        S3Key: java-sample.war
+
+  # Configuration Template
+  ConfigurationTemplate:
+    Type: AWS::ElasticBeanstalk::ConfigurationTemplate
+    Properties:
+      ApplicationName: !Ref Application
+      Description: Hybrid Cloud configuration template
+      SolutionStackName: !Sub '64bit Amazon Linux 2023 v4.3.0 running Corretto ${JavaVersion}'
+      OptionSettings:
+        # VPC Configuration
+        - Namespace: aws:ec2:vpc
+          OptionName: VPCId
+          Value: !Ref VPCId
+        - Namespace: aws:ec2:vpc
+          OptionName: Subnets
+          Value: !Sub '${PrivateSubnet1},${PrivateSubnet2}'
+        - Namespace: aws:ec2:vpc
+          OptionName: ELBSubnets
+          Value: !Sub '${PublicSubnet1},${PublicSubnet2}'
+        - Namespace: aws:ec2:vpc
+          OptionName: AssociatePublicIpAddress
+          Value: 'false'
+
+        # Auto Scaling Configuration
+        - Namespace: aws:autoscaling:asg
+          OptionName: MinSize
+          Value: !Ref MinInstances
+        - Namespace: aws:autoscaling:asg
+          OptionName: MaxSize
+          Value: !Ref MaxInstances
+
+        # Launch Configuration
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: IamInstanceProfile
+          Value: !Ref InstanceProfileArn
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: InstanceType
+          Value: !Ref InstanceType
+        - Namespace: aws:autoscaling:launchconfiguration
+          OptionName: SecurityGroups
+          Value: !Ref EC2SecurityGroup
+
+        # Load Balancer Configuration
+        - Namespace: aws:elasticbeanstalk:environment
+          OptionName: EnvironmentType
+          Value: LoadBalanced
+        - Namespace: aws:elasticbeanstalk:environment
+          OptionName: LoadBalancerType
+          Value: application
+        - Namespace: aws:elasticbeanstalk:environment
+          OptionName: ServiceRole
+          Value: !Ref ServiceRoleArn
+
+        # ALB Security Group
+        - Namespace: aws:elbv2:loadbalancer
+          OptionName: SecurityGroups
+          Value: !Ref ALBSecurityGroup
+        - Namespace: aws:elbv2:loadbalancer
+          OptionName: ManagedSecurityGroup
+          Value: !Ref ALBSecurityGroup
+
+        # Listener Configuration
+        - Namespace: aws:elbv2:listener:default
+          OptionName: Protocol
+          Value: HTTP
+        - Namespace: aws:elbv2:listener:default
+          OptionName: ListenerEnabled
+          Value: !If [HasCertificate, 'false', 'true']
+
+        # Health Check
+        - Namespace: aws:elasticbeanstalk:application
+          OptionName: Application Healthcheck URL
+          Value: /actuator/health
+        - Namespace: aws:elasticbeanstalk:environment:process:default
+          OptionName: HealthCheckPath
+          Value: /actuator/health
+        - Namespace: aws:elasticbeanstalk:environment:process:default
+          OptionName: MatcherHTTPCode
+          Value: '200'
+
+        # Enhanced Health Reporting
+        - Namespace: aws:elasticbeanstalk:healthreporting:system
+          OptionName: SystemType
+          Value: enhanced
+
+        # Rolling Updates
+        - Namespace: aws:autoscaling:updatepolicy:rollingupdate
+          OptionName: RollingUpdateEnabled
+          Value: 'true'
+        - Namespace: aws:autoscaling:updatepolicy:rollingupdate
+          OptionName: RollingUpdateType
+          Value: Health
+        - Namespace: aws:autoscaling:updatepolicy:rollingupdate
+          OptionName: MinInstancesInService
+          Value: '1'
+
+        # Deployment Policy
+        - Namespace: aws:elasticbeanstalk:command
+          OptionName: DeploymentPolicy
+          Value: Rolling
+        - Namespace: aws:elasticbeanstalk:command
+          OptionName: BatchSizeType
+          Value: Percentage
+        - Namespace: aws:elasticbeanstalk:command
+          OptionName: BatchSize
+          Value: '30'
+
+        # CloudWatch Logs
+        - Namespace: aws:elasticbeanstalk:cloudwatch:logs
+          OptionName: StreamLogs
+          Value: 'true'
+        - Namespace: aws:elasticbeanstalk:cloudwatch:logs
+          OptionName: DeleteOnTerminate
+          Value: 'false'
+        - Namespace: aws:elasticbeanstalk:cloudwatch:logs
+          OptionName: RetentionInDays
+          Value: '30'
+
+        # X-Ray Tracing
+        - Namespace: aws:elasticbeanstalk:xray
+          OptionName: XRayEnabled
+          Value: 'true'
+
+        # Environment Variables
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: SPRING_PROFILES_ACTIVE
+          Value: !Ref Environment
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: ORACLE_HOST
+          Value: !Ref OracleHost
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: ORACLE_PORT
+          Value: !Ref OraclePort
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: ORACLE_SERVICE_NAME
+          Value: !Ref OracleServiceName
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: REPORTS_BUCKET
+          Value: !Ref ReportsBucketName
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: AWS_REGION
+          Value: !Ref AWS::Region
+
+        # JVM Options
+        - Namespace: aws:elasticbeanstalk:application:environment
+          OptionName: JAVA_TOOL_OPTIONS
+          Value: '-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:+UseStringDeduplication'
+
+  # Elastic Beanstalk Environment
+  Environment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      EnvironmentName: !Sub '${ProjectName}-${Environment}-env'
+      ApplicationName: !Ref Application
+      TemplateName: !Ref ConfigurationTemplate
+      VersionLabel: !Ref ApplicationVersion
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # HTTPS Listener (conditional)
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasCertificate
+    Properties:
+      LoadBalancerArn: !Sub 'arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:loadbalancer/app/${ProjectName}-${Environment}-env/${Environment.EndpointURL}'
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Sub 'arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/awseb-${ProjectName}-${Environment}/*'
+
+Outputs:
+  ApplicationName:
+    Value: !Ref Application
+  EnvironmentName:
+    Value: !Ref Environment
+  EndpointURL:
+    Value: !GetAtt Environment.EndpointURL
+  LoadBalancerArn:
+    Value: !Sub 'arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:loadbalancer/app/${ProjectName}-${Environment}-env/*'

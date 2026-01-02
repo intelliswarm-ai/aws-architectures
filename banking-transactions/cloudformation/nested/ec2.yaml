@@ -1,0 +1,364 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Banking Platform - EC2 Auto Scaling Group with ALB'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  VpcId:
+    Type: String
+  PublicSubnetIds:
+    Type: CommaDelimitedList
+  PrivateSubnetIds:
+    Type: CommaDelimitedList
+  InstanceType:
+    Type: String
+  MinSize:
+    Type: Number
+  MaxSize:
+    Type: Number
+  TargetMessagesPerInstance:
+    Type: Number
+  EC2InstanceProfileArn:
+    Type: String
+  TransactionQueueUrl:
+    Type: String
+  TransactionsTableName:
+    Type: String
+  IdempotencyTableName:
+    Type: String
+  S3BucketName:
+    Type: String
+  LogGroupName:
+    Type: String
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, 'prod']
+
+Resources:
+  # ALB Security Group
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-${Environment}-alb-sg'
+      GroupDescription: Security group for Application Load Balancer
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: '0.0.0.0/0'
+          Description: HTTPS from internet
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: '0.0.0.0/0'
+          Description: HTTP from internet (redirect)
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-alb-sg'
+
+  # EC2 Security Group
+  ProcessorSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-${Environment}-processor-sg'
+      GroupDescription: Security group for transaction processor instances
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: Health check from ALB
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-processor-sg'
+
+  # Launch Template
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub '${ProjectName}-${Environment}-processor-lt'
+      LaunchTemplateData:
+        ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Arn: !Ref EC2InstanceProfileArn
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            AssociatePublicIpAddress: false
+            Groups:
+              - !Ref ProcessorSecurityGroup
+            DeleteOnTermination: true
+        Monitoring:
+          Enabled: true
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -e
+
+            # Install dependencies
+            yum update -y
+            yum install -y python3.12 python3.12-pip amazon-cloudwatch-agent
+
+            # Set environment variables
+            cat > /etc/environment << EOF
+            AWS_REGION=${AWS::Region}
+            ENVIRONMENT=${Environment}
+            TRANSACTION_QUEUE_URL=${TransactionQueueUrl}
+            TRANSACTIONS_TABLE_NAME=${TransactionsTableName}
+            IDEMPOTENCY_TABLE_NAME=${IdempotencyTableName}
+            S3_BUCKET=${S3BucketName}
+            LOG_GROUP_NAME=${LogGroupName}
+            EOF
+
+            # Create application directory
+            mkdir -p /opt/banking-processor
+            cd /opt/banking-processor
+
+            # Create simple processor application
+            cat > processor.py << 'PYTHON'
+            import boto3
+            import json
+            import os
+            import time
+            import logging
+            from datetime import datetime
+            from http.server import HTTPServer, BaseHTTPRequestHandler
+            import threading
+
+            logging.basicConfig(level=logging.INFO)
+            logger = logging.getLogger(__name__)
+
+            sqs = boto3.client('sqs', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+            dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+
+            class HealthHandler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    if self.path == '/health':
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(b'{"status": "healthy"}')
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+
+            def process_messages():
+                queue_url = os.environ.get('TRANSACTION_QUEUE_URL')
+                table_name = os.environ.get('TRANSACTIONS_TABLE_NAME')
+                table = dynamodb.Table(table_name)
+
+                while True:
+                    try:
+                        response = sqs.receive_message(
+                            QueueUrl=queue_url,
+                            MaxNumberOfMessages=10,
+                            WaitTimeSeconds=20,
+                            AttributeNames=['All']
+                        )
+
+                        for message in response.get('Messages', []):
+                            try:
+                                body = json.loads(message['Body'])
+                                transaction_id = body.get('transaction_id')
+
+                                # Process transaction
+                                table.put_item(Item={
+                                    'transaction_id': transaction_id,
+                                    'status': 'processed',
+                                    'processed_at': datetime.utcnow().isoformat(),
+                                    **body
+                                })
+
+                                # Delete message
+                                sqs.delete_message(
+                                    QueueUrl=queue_url,
+                                    ReceiptHandle=message['ReceiptHandle']
+                                )
+                                logger.info(f'Processed transaction: {transaction_id}')
+
+                            except Exception as e:
+                                logger.error(f'Error processing message: {e}')
+
+                    except Exception as e:
+                        logger.error(f'Error receiving messages: {e}')
+                        time.sleep(5)
+
+            if __name__ == '__main__':
+                # Start health check server
+                server = HTTPServer(('0.0.0.0', 8080), HealthHandler)
+                health_thread = threading.Thread(target=server.serve_forever)
+                health_thread.daemon = True
+                health_thread.start()
+
+                # Start message processing
+                process_messages()
+            PYTHON
+
+            # Install Python dependencies
+            pip3.12 install boto3
+
+            # Create systemd service
+            cat > /etc/systemd/system/banking-processor.service << 'SERVICE'
+            [Unit]
+            Description=Banking Transaction Processor
+            After=network.target
+
+            [Service]
+            Type=simple
+            EnvironmentFile=/etc/environment
+            ExecStart=/usr/bin/python3.12 /opt/banking-processor/processor.py
+            Restart=always
+            RestartSec=5
+
+            [Install]
+            WantedBy=multi-user.target
+            SERVICE
+
+            # Start service
+            systemctl daemon-reload
+            systemctl enable banking-processor
+            systemctl start banking-processor
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub '${ProjectName}-${Environment}-processor'
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: !Sub '${ProjectName}-${Environment}-processor-volume'
+
+  # Application Load Balancer
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-alb'
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets: !Ref PublicSubnetIds
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-alb'
+
+  # Target Group
+  ProcessorTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-tg'
+      Port: 8080
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      HealthCheckEnabled: true
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-processor-tg'
+
+  # ALB Listener (HTTP redirect)
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: '443'
+            StatusCode: HTTP_301
+
+  # Auto Scaling Group
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub '${ProjectName}-${Environment}-processor-asg'
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MinSize: !Ref MinSize
+      MaxSize: !Ref MaxSize
+      DesiredCapacity: !Ref MinSize
+      VPCZoneIdentifier: !Ref PrivateSubnetIds
+      TargetGroupARNs:
+        - !Ref ProcessorTargetGroup
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      TerminationPolicies:
+        - OldestInstance
+        - Default
+      MetricsCollection:
+        - Granularity: 1Minute
+          Metrics:
+            - GroupMinSize
+            - GroupMaxSize
+            - GroupDesiredCapacity
+            - GroupInServiceInstances
+            - GroupPendingInstances
+            - GroupStandbyInstances
+            - GroupTerminatingInstances
+            - GroupTotalInstances
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-processor'
+          PropagateAtLaunch: true
+
+  # SQS-based Scaling Policy (Target Tracking)
+  SQSScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        CustomizedMetricSpecification:
+          MetricName: BacklogPerInstance
+          Namespace: BankingPlatform/SQS
+          Statistic: Average
+          Dimensions:
+            - Name: QueueName
+              Value: transaction-queue
+        TargetValue: !Ref TargetMessagesPerInstance
+
+  # Scale Out Policy (backup)
+  ScaleOutPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      AdjustmentType: ChangeInCapacity
+      ScalingAdjustment: 2
+      Cooldown: 120
+
+  # Scale In Policy
+  ScaleInPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      AdjustmentType: ChangeInCapacity
+      ScalingAdjustment: -1
+      Cooldown: 300
+
+Outputs:
+  ALBDnsName:
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+  ALBArn:
+    Value: !Ref ApplicationLoadBalancer
+  AutoScalingGroupName:
+    Value: !Ref AutoScalingGroup
+  TargetGroupArn:
+    Value: !Ref ProcessorTargetGroup

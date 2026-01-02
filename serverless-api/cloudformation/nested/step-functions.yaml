@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Task Automation - Step Functions State Machine'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  StepFunctionsRoleArn:
+    Type: String
+  TaskGeneratorArn:
+    Type: String
+  SQSProcessorArn:
+    Type: String
+  TaskExecutorArn:
+    Type: String
+  NotificationHandlerArn:
+    Type: String
+
+Resources:
+  TaskProcessingStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-${Environment}-task-processor'
+      RoleArn: !Ref StepFunctionsRoleArn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Task Automation State Machine",
+          "StartAt": "GenerateTask",
+          "States": {
+            "GenerateTask": {
+              "Type": "Task",
+              "Resource": "${TaskGeneratorArn}",
+              "Next": "ProcessTask",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "ProcessTask": {
+              "Type": "Task",
+              "Resource": "${SQSProcessorArn}",
+              "Next": "ExecuteTask",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "ExecuteTask": {
+              "Type": "Task",
+              "Resource": "${TaskExecutorArn}",
+              "Next": "CheckResult",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "CheckResult": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.status",
+                  "StringEquals": "COMPLETED",
+                  "Next": "NotifySuccess"
+                }
+              ],
+              "Default": "NotifyFailure"
+            },
+            "NotifySuccess": {
+              "Type": "Task",
+              "Resource": "${NotificationHandlerArn}",
+              "End": true
+            },
+            "NotifyFailure": {
+              "Type": "Task",
+              "Resource": "${NotificationHandlerArn}",
+              "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  StateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/states/${ProjectName}-${Environment}-task-processor'
+      RetentionInDays: 30
+
+Outputs:
+  StateMachineArn:
+    Description: State machine ARN
+    Value: !Ref TaskProcessingStateMachine
+
+  StateMachineName:
+    Description: State machine name
+    Value: !GetAtt TaskProcessingStateMachine.Name

@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Call Sentiment Analysis - EventBridge Rules'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  ComprehendHandlerArn:
+    Type: String
+  ComprehendHandlerName:
+    Type: String
+
+Resources:
+  # Daily batch processing rule
+  DailyBatchRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-daily-batch'
+      Description: Daily batch processing for Comprehend analysis
+      ScheduleExpression: 'cron(0 2 * * ? *)'
+      State: ENABLED
+      Targets:
+        - Id: ComprehendHandler
+          Arn: !Ref ComprehendHandlerArn
+          Input: '{"action": "batch_process"}'
+
+  DailyBatchPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ComprehendHandlerName
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt DailyBatchRule.Arn
+
+  # Comprehend job completion rule
+  ComprehendJobCompletionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-comprehend-completion'
+      Description: Handle Comprehend job completion events
+      EventPattern:
+        source:
+          - aws.comprehend
+        detail-type:
+          - Comprehend Sentiment Analysis Job State Change
+        detail:
+          jobStatus:
+            - COMPLETED
+            - FAILED
+      State: ENABLED
+      Targets:
+        - Id: ComprehendHandler
+          Arn: !Ref ComprehendHandlerArn
+
+  ComprehendCompletionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ComprehendHandlerName
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ComprehendJobCompletionRule.Arn
+
+Outputs:
+  DailyBatchRuleArn:
+    Description: Daily batch rule ARN
+    Value: !GetAtt DailyBatchRule.Arn
+
+  ComprehendCompletionRuleArn:
+    Description: Comprehend completion rule ARN
+    Value: !GetAtt ComprehendJobCompletionRule.Arn

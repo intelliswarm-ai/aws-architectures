@@ -1,0 +1,223 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Task Automation - Lambda Functions'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  MemorySize:
+    Type: Number
+  Timeout:
+    Type: Number
+  LambdaRoleArn:
+    Type: String
+  TasksTableName:
+    Type: String
+  TaskQueueUrl:
+    Type: String
+  NotificationTopicArn:
+    Type: String
+
+Resources:
+  TaskGeneratorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-task-generator'
+      Runtime: python3.12
+      Handler: task_generator.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: !Ref Timeout
+      MemorySize: !Ref MemorySize
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTableName
+          TASK_QUEUE_URL: !Ref TaskQueueUrl
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import uuid
+          from datetime import datetime
+
+          dynamodb = boto3.resource('dynamodb')
+          sqs = boto3.client('sqs')
+          table = dynamodb.Table(os.environ['TASKS_TABLE'])
+          QUEUE_URL = os.environ['TASK_QUEUE_URL']
+
+          def handler(event, context):
+              task_id = str(uuid.uuid4())
+              timestamp = datetime.utcnow().isoformat()
+
+              task = {
+                  'task_id': task_id,
+                  'status': 'PENDING',
+                  'created_at': timestamp,
+                  'type': event.get('type', 'default'),
+                  'payload': event.get('payload', {})
+              }
+
+              table.put_item(Item=task)
+              sqs.send_message(QueueUrl=QUEUE_URL, MessageBody=json.dumps(task))
+
+              return {'task_id': task_id, 'status': 'PENDING'}
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  TaskGeneratorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${TaskGeneratorFunction}'
+      RetentionInDays: 30
+
+  SQSProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-sqs-processor'
+      Runtime: python3.12
+      Handler: sqs_processor.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: !Ref Timeout
+      MemorySize: !Ref MemorySize
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTableName
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table(os.environ['TASKS_TABLE'])
+
+          def handler(event, context):
+              processed = []
+              for record in event.get('Records', []):
+                  task = json.loads(record['body'])
+                  table.update_item(
+                      Key={'task_id': task['task_id']},
+                      UpdateExpression='SET #s = :status',
+                      ExpressionAttributeNames={'#s': 'status'},
+                      ExpressionAttributeValues={':status': 'PROCESSING'}
+                  )
+                  processed.append(task['task_id'])
+              return {'processed': processed}
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  SQSProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${SQSProcessorFunction}'
+      RetentionInDays: 30
+
+  TaskExecutorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-task-executor'
+      Runtime: python3.12
+      Handler: task_executor.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: !Ref Timeout
+      MemorySize: !Ref MemorySize
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTableName
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime
+
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table(os.environ['TASKS_TABLE'])
+
+          def handler(event, context):
+              task_id = event.get('task_id')
+              # Simulate task execution
+              result = {'executed': True, 'timestamp': datetime.utcnow().isoformat()}
+
+              table.update_item(
+                  Key={'task_id': task_id},
+                  UpdateExpression='SET #s = :status, #r = :result',
+                  ExpressionAttributeNames={'#s': 'status', '#r': 'result'},
+                  ExpressionAttributeValues={':status': 'COMPLETED', ':result': result}
+              )
+              return {'task_id': task_id, 'status': 'COMPLETED'}
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  TaskExecutorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${TaskExecutorFunction}'
+      RetentionInDays: 30
+
+  NotificationHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-notification-handler'
+      Runtime: python3.12
+      Handler: notification_handler.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          NOTIFICATION_TOPIC: !Ref NotificationTopicArn
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          sns = boto3.client('sns')
+          TOPIC_ARN = os.environ['NOTIFICATION_TOPIC']
+
+          def handler(event, context):
+              task_id = event.get('task_id')
+              status = event.get('status')
+
+              sns.publish(
+                  TopicArn=TOPIC_ARN,
+                  Subject=f'Task {status}: {task_id}',
+                  Message=json.dumps(event, indent=2)
+              )
+              return {'notified': True}
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  NotificationHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${NotificationHandlerFunction}'
+      RetentionInDays: 30
+
+Outputs:
+  TaskGeneratorArn:
+    Value: !GetAtt TaskGeneratorFunction.Arn
+  TaskGeneratorName:
+    Value: !Ref TaskGeneratorFunction
+  SQSProcessorArn:
+    Value: !GetAtt SQSProcessorFunction.Arn
+  SQSProcessorName:
+    Value: !Ref SQSProcessorFunction
+  TaskExecutorArn:
+    Value: !GetAtt TaskExecutorFunction.Arn
+  TaskExecutorName:
+    Value: !Ref TaskExecutorFunction
+  NotificationHandlerArn:
+    Value: !GetAtt NotificationHandlerFunction.Arn
+  NotificationHandlerName:
+    Value: !Ref NotificationHandlerFunction

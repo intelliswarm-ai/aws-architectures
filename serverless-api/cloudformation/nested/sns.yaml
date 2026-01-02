@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Task Automation - SNS Topics'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  AlarmEmail:
+    Type: String
+    Default: ''
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref AlarmEmail, '']]
+
+Resources:
+  NotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-notifications'
+      KmsMasterKeyId: alias/aws/sns
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref NotificationTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+Outputs:
+  NotificationTopicArn:
+    Description: Notification topic ARN
+    Value: !Ref NotificationTopic
+
+  NotificationTopicName:
+    Description: Notification topic name
+    Value: !GetAtt NotificationTopic.TopicName

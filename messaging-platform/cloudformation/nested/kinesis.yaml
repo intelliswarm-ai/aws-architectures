@@ -1,0 +1,27 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SMS Marketing - Kinesis Stream'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  ShardCount:
+    Type: Number
+
+Resources:
+  EventStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-events'
+      ShardCount: !Ref ShardCount
+      RetentionPeriodHours: 24
+      StreamEncryption:
+        EncryptionType: KMS
+        KeyId: alias/aws/kinesis
+
+Outputs:
+  StreamName:
+    Value: !Ref EventStream
+  StreamArn:
+    Value: !GetAtt EventStream.Arn

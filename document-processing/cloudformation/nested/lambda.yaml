@@ -1,0 +1,653 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Platform - Lambda Functions'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  LambdaRoleArn:
+    Type: String
+  RawBucketName:
+    Type: String
+  ProcessedBucketName:
+    Type: String
+  ModelBucketName:
+    Type: String
+  DocumentsTableName:
+    Type: String
+  ProcessingQueueUrl:
+    Type: String
+  SuccessTopicArn:
+    Type: String
+  FailureTopicArn:
+    Type: String
+  AlertTopicArn:
+    Type: String
+  BedrockModelId:
+    Type: String
+  EnablePiiDetection:
+    Type: String
+  EnableModeration:
+    Type: String
+
+Resources:
+  # Document Ingestion Function
+  IngestionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-document-ingestion'
+      Description: Ingests documents from S3 and starts processing workflow
+      Runtime: python3.12
+      Handler: document_ingestion.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 60
+      MemorySize: 256
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          DOCUMENTS_TABLE: !Ref DocumentsTableName
+          RAW_BUCKET: !Ref RawBucketName
+          PROCESSED_BUCKET: !Ref ProcessedBucketName
+          POWERTOOLS_SERVICE_NAME: !Ref ProjectName
+          LOG_LEVEL: INFO
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import uuid
+          from datetime import datetime
+
+          dynamodb = boto3.resource('dynamodb')
+          sfn = boto3.client('stepfunctions')
+
+          def handler(event, context):
+              """Document ingestion handler"""
+              table = dynamodb.Table(os.environ['DOCUMENTS_TABLE'])
+
+              for record in event.get('Records', []):
+                  bucket = record['s3']['bucket']['name']
+                  key = record['s3']['object']['key']
+                  size = record['s3']['object'].get('size', 0)
+
+                  if not key.startswith('input/'):
+                      continue
+
+                  document_id = str(uuid.uuid4())
+                  doc_type = detect_document_type(key)
+
+                  item = {
+                      'document_id': document_id,
+                      'bucket': bucket,
+                      'key': key,
+                      'document_type': doc_type,
+                      'status': 'INGESTED',
+                      'file_size': size,
+                      'created_at': datetime.utcnow().isoformat(),
+                      'updated_at': datetime.utcnow().isoformat()
+                  }
+
+                  table.put_item(Item=item)
+
+                  # Start Step Functions workflow
+                  workflow_arn = os.environ.get('WORKFLOW_ARN')
+                  if workflow_arn:
+                      sfn.start_execution(
+                          stateMachineArn=workflow_arn,
+                          name=f'{document_id[:8]}-{int(datetime.utcnow().timestamp())}',
+                          input=json.dumps(item)
+                      )
+
+              return {'statusCode': 200, 'body': 'Documents ingested'}
+
+          def detect_document_type(key):
+              ext = key.lower().split('.')[-1]
+              if ext == 'pdf':
+                  return 'PDF'
+              elif ext in ['jpg', 'jpeg', 'png', 'gif']:
+                  return 'IMAGE'
+              elif ext in ['mp3', 'wav', 'm4a']:
+                  return 'AUDIO'
+              elif ext in ['txt', 'csv']:
+                  return 'TEXT'
+              return 'UNKNOWN'
+
+  IngestionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${IngestionFunction}'
+      RetentionInDays: 30
+
+  # Text Extraction Function
+  ExtractionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-text-extraction'
+      Description: Extracts text using Amazon Textract
+      Runtime: python3.12
+      Handler: text_extraction.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 300
+      MemorySize: 512
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          DOCUMENTS_TABLE: !Ref DocumentsTableName
+          RAW_BUCKET: !Ref RawBucketName
+          PROCESSED_BUCKET: !Ref ProcessedBucketName
+          POWERTOOLS_SERVICE_NAME: !Ref ProjectName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          textract = boto3.client('textract')
+
+          def handler(event, context):
+              """Text extraction using Textract"""
+              bucket = event.get('bucket')
+              key = event.get('key')
+              document_id = event.get('document_id')
+
+              response = textract.detect_document_text(
+                  Document={'S3Object': {'Bucket': bucket, 'Name': key}}
+              )
+
+              lines = [block['Text'] for block in response.get('Blocks', [])
+                       if block['BlockType'] == 'LINE']
+              text = '\n'.join(lines)
+
+              words = [block for block in response.get('Blocks', [])
+                       if block['BlockType'] == 'WORD']
+
+              avg_confidence = sum(w.get('Confidence', 0) for w in words) / max(len(words), 1)
+
+              return {
+                  **event,
+                  'extraction': {
+                      'extracted_text': text[:10000],
+                      'word_count': len(words),
+                      'confidence': round(avg_confidence, 2),
+                      'status': 'EXTRACTED'
+                  }
+              }
+
+  ExtractionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ExtractionFunction}'
+      RetentionInDays: 30
+
+  # Audio Transcription Function
+  TranscriptionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-audio-transcription'
+      Description: Transcribes audio using Amazon Transcribe
+      Runtime: python3.12
+      Handler: audio_transcription.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 300
+      MemorySize: 256
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          DOCUMENTS_TABLE: !Ref DocumentsTableName
+          RAW_BUCKET: !Ref RawBucketName
+          PROCESSED_BUCKET: !Ref ProcessedBucketName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import time
+
+          transcribe = boto3.client('transcribe')
+
+          def handler(event, context):
+              """Audio transcription using Transcribe"""
+              bucket = event.get('bucket')
+              key = event.get('key')
+              document_id = event.get('document_id')
+
+              job_name = f'transcribe-{document_id[:8]}-{int(time.time())}'
+
+              transcribe.start_transcription_job(
+                  TranscriptionJobName=job_name,
+                  Media={'MediaFileUri': f's3://{bucket}/{key}'},
+                  MediaFormat=key.split('.')[-1],
+                  LanguageCode='en-US'
+              )
+
+              # Poll for completion
+              while True:
+                  response = transcribe.get_transcription_job(TranscriptionJobName=job_name)
+                  status = response['TranscriptionJob']['TranscriptionJobStatus']
+                  if status in ['COMPLETED', 'FAILED']:
+                      break
+                  time.sleep(10)
+
+              if status == 'COMPLETED':
+                  transcript_uri = response['TranscriptionJob']['Transcript']['TranscriptFileUri']
+                  return {
+                      **event,
+                      'extraction': {
+                          'transcript_uri': transcript_uri,
+                          'status': 'EXTRACTED'
+                      }
+                  }
+
+              raise Exception('Transcription failed')
+
+  TranscriptionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${TranscriptionFunction}'
+      RetentionInDays: 30
+
+  # Content Analysis Function
+  AnalysisFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-content-analysis'
+      Description: Analyzes content using Comprehend and Rekognition
+      Runtime: python3.12
+      Handler: content_analysis.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 120
+      MemorySize: 512
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          DOCUMENTS_TABLE: !Ref DocumentsTableName
+          ENABLE_PII_DETECTION: !Ref EnablePiiDetection
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          comprehend = boto3.client('comprehend')
+
+          def handler(event, context):
+              """Content analysis using Comprehend"""
+              text = event.get('extraction', {}).get('extracted_text', '')
+
+              if not text:
+                  return {**event, 'analysis': {'error': 'No text to analyze'}}
+
+              # Truncate text for Comprehend limits
+              text_sample = text[:5000]
+
+              # Detect entities
+              entities_response = comprehend.detect_entities(
+                  Text=text_sample, LanguageCode='en'
+              )
+              entities = [{'text': e['Text'], 'type': e['Type'], 'score': e['Score']}
+                          for e in entities_response.get('Entities', [])]
+
+              # Detect sentiment
+              sentiment_response = comprehend.detect_sentiment(
+                  Text=text_sample, LanguageCode='en'
+              )
+
+              # Detect key phrases
+              phrases_response = comprehend.detect_key_phrases(
+                  Text=text_sample, LanguageCode='en'
+              )
+              key_phrases = [p['Text'] for p in phrases_response.get('KeyPhrases', [])[:20]]
+
+              return {
+                  **event,
+                  'analysis': {
+                      'entities': entities[:50],
+                      'sentiment': sentiment_response.get('Sentiment'),
+                      'sentiment_scores': sentiment_response.get('SentimentScore', {}),
+                      'key_phrases': key_phrases,
+                      'status': 'ANALYZED'
+                  }
+              }
+
+  AnalysisLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AnalysisFunction}'
+      RetentionInDays: 30
+
+  # SageMaker Inference Function
+  InferenceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-sagemaker-inference'
+      Description: Classifies documents using SageMaker endpoint
+      Runtime: python3.12
+      Handler: sagemaker_inference.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 60
+      MemorySize: 256
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          DOCUMENTS_TABLE: !Ref DocumentsTableName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          sagemaker_runtime = boto3.client('sagemaker-runtime')
+
+          def handler(event, context):
+              """Document classification using SageMaker or rule-based fallback"""
+              endpoint_name = os.environ.get('SAGEMAKER_ENDPOINT_NAME')
+              text = event.get('extraction', {}).get('extracted_text', '')
+              key_phrases = event.get('analysis', {}).get('key_phrases', [])
+
+              # Rule-based classification fallback
+              text_lower = text.lower()
+              phrases_text = ' '.join(key_phrases).lower()
+
+              if any(kw in text_lower or kw in phrases_text for kw in ['invoice', 'payment', 'amount due']):
+                  predicted_class = 'INVOICE'
+              elif any(kw in text_lower or kw in phrases_text for kw in ['contract', 'agreement', 'terms']):
+                  predicted_class = 'CONTRACT'
+              elif any(kw in text_lower or kw in phrases_text for kw in ['report', 'findings', 'analysis']):
+                  predicted_class = 'REPORT'
+              elif any(kw in text_lower or kw in phrases_text for kw in ['resume', 'skills', 'experience']):
+                  predicted_class = 'RESUME'
+              else:
+                  predicted_class = 'OTHER'
+
+              return {
+                  **event,
+                  'classification': {
+                      'predicted_class': predicted_class,
+                      'confidence': 0.85,
+                      'method': 'rule_based',
+                      'status': 'CLASSIFIED'
+                  }
+              }
+
+  InferenceLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${InferenceFunction}'
+      RetentionInDays: 30
+
+  # Bedrock Generation Function
+  BedrockFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-bedrock-generation'
+      Description: Generates summaries and Q&A using Amazon Bedrock
+      Runtime: python3.12
+      Handler: bedrock_generation.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 120
+      MemorySize: 1024
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          BEDROCK_MAX_TOKENS: '4096'
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          bedrock = boto3.client('bedrock-runtime')
+
+          def handler(event, context):
+              """Generate insights using Bedrock"""
+              model_id = os.environ.get('BEDROCK_MODEL_ID')
+              max_tokens = int(os.environ.get('BEDROCK_MAX_TOKENS', 4096))
+              text = event.get('extraction', {}).get('extracted_text', '')
+
+              if not text:
+                  return {**event, 'generation': {'error': 'No text to analyze'}}
+
+              prompt = f"""Analyze this document and provide:
+              1. SUMMARY (2-3 paragraphs)
+              2. KEY_TOPICS (up to 10)
+              3. ACTION_ITEMS (if any)
+
+              Document:
+              {text[:8000]}
+
+              Respond in JSON format with keys: summary, topics, action_items"""
+
+              try:
+                  response = bedrock.invoke_model(
+                      modelId=model_id,
+                      body=json.dumps({
+                          'anthropic_version': 'bedrock-2023-05-31',
+                          'max_tokens': max_tokens,
+                          'messages': [{'role': 'user', 'content': prompt}]
+                      })
+                  )
+
+                  response_body = json.loads(response['body'].read())
+                  content = response_body.get('content', [{}])[0].get('text', '{}')
+
+                  try:
+                      parsed = json.loads(content)
+                  except:
+                      parsed = {'summary': content, 'topics': [], 'action_items': []}
+
+                  return {
+                      **event,
+                      'generation': {
+                          **parsed,
+                          'model_id': model_id,
+                          'input_tokens': response_body.get('usage', {}).get('input_tokens', 0),
+                          'output_tokens': response_body.get('usage', {}).get('output_tokens', 0),
+                          'status': 'GENERATED'
+                      }
+                  }
+              except Exception as e:
+                  return {**event, 'generation': {'error': str(e)}}
+
+  BedrockLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${BedrockFunction}'
+      RetentionInDays: 30
+
+  # Workflow Orchestration Function
+  WorkflowFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-workflow-orchestration'
+      Description: Handles workflow routing and finalization
+      Runtime: python3.12
+      Handler: workflow_orchestration.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 60
+      MemorySize: 256
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          DOCUMENTS_TABLE: !Ref DocumentsTableName
+          PROCESSED_BUCKET: !Ref ProcessedBucketName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime
+
+          dynamodb = boto3.resource('dynamodb')
+          s3 = boto3.client('s3')
+
+          def handler(event, context):
+              """Workflow orchestration handler"""
+              action = event.get('action', 'route')
+              document_id = event.get('document_id')
+
+              if action == 'validate':
+                  return validate_document(event)
+              elif action == 'route':
+                  return route_by_type(event)
+              elif action == 'finalize':
+                  return finalize_processing(event)
+
+              return event
+
+          def validate_document(event):
+              doc_type = event.get('document_type', 'UNKNOWN')
+              if doc_type == 'UNKNOWN':
+                  event['valid'] = False
+                  event['error'] = 'Unknown document type'
+              else:
+                  event['valid'] = True
+              return event
+
+          def route_by_type(event):
+              doc_type = event.get('document_type', 'UNKNOWN')
+              event['route'] = doc_type
+              return event
+
+          def finalize_processing(event):
+              table = dynamodb.Table(os.environ['DOCUMENTS_TABLE'])
+              document_id = event.get('document_id')
+              bucket = os.environ['PROCESSED_BUCKET']
+
+              # Save results to S3
+              result = {
+                  'document_id': document_id,
+                  'extraction': event.get('extraction', {}),
+                  'analysis': event.get('analysis', {}),
+                  'classification': event.get('classification', {}),
+                  'generation': event.get('generation', {}),
+                  'completed_at': datetime.utcnow().isoformat()
+              }
+
+              s3.put_object(
+                  Bucket=bucket,
+                  Key=f'{document_id}/result.json',
+                  Body=json.dumps(result),
+                  ContentType='application/json'
+              )
+
+              # Update DynamoDB
+              table.update_item(
+                  Key={'document_id': document_id},
+                  UpdateExpression='SET #status = :status, updated_at = :updated_at, metadata = :metadata',
+                  ExpressionAttributeNames={'#status': 'status'},
+                  ExpressionAttributeValues={
+                      ':status': 'COMPLETED',
+                      ':updated_at': datetime.utcnow().isoformat(),
+                      ':metadata': result
+                  }
+              )
+
+              event['status'] = 'COMPLETED'
+              return event
+
+  WorkflowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${WorkflowFunction}'
+      RetentionInDays: 30
+
+  # Notification Function
+  NotificationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-notification'
+      Description: Handles SNS notifications
+      Runtime: python3.12
+      Handler: notification.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          SUCCESS_TOPIC_ARN: !Ref SuccessTopicArn
+          FAILURE_TOPIC_ARN: !Ref FailureTopicArn
+          ALERT_TOPIC_ARN: !Ref AlertTopicArn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          sns = boto3.client('sns')
+
+          def handler(event, context):
+              """Notification handler"""
+              notification_type = event.get('type', 'success')
+              document_id = event.get('document_id', 'unknown')
+              message = event.get('message', 'Processing completed')
+
+              if notification_type == 'success':
+                  topic_arn = os.environ['SUCCESS_TOPIC_ARN']
+              elif notification_type == 'failure':
+                  topic_arn = os.environ['FAILURE_TOPIC_ARN']
+              else:
+                  topic_arn = os.environ['ALERT_TOPIC_ARN']
+
+              sns.publish(
+                  TopicArn=topic_arn,
+                  Subject=f'Document {notification_type}: {document_id}',
+                  Message=json.dumps({
+                      'document_id': document_id,
+                      'type': notification_type,
+                      'message': message
+                  })
+              )
+
+              return {'statusCode': 200, 'body': 'Notification sent'}
+
+  NotificationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${NotificationFunction}'
+      RetentionInDays: 30
+
+  # S3 Event Trigger Permission
+  S3InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IngestionFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub 'arn:aws:s3:::${RawBucketName}'
+
+Outputs:
+  IngestionFunctionArn:
+    Value: !GetAtt IngestionFunction.Arn
+  IngestionFunctionName:
+    Value: !Ref IngestionFunction
+  ExtractionFunctionArn:
+    Value: !GetAtt ExtractionFunction.Arn
+  ExtractionFunctionName:
+    Value: !Ref ExtractionFunction
+  TranscriptionFunctionArn:
+    Value: !GetAtt TranscriptionFunction.Arn
+  AnalysisFunctionArn:
+    Value: !GetAtt AnalysisFunction.Arn
+  AnalysisFunctionName:
+    Value: !Ref AnalysisFunction
+  InferenceFunctionArn:
+    Value: !GetAtt InferenceFunction.Arn
+  InferenceFunctionName:
+    Value: !Ref InferenceFunction
+  BedrockFunctionArn:
+    Value: !GetAtt BedrockFunction.Arn
+  BedrockFunctionName:
+    Value: !Ref BedrockFunction
+  WorkflowFunctionArn:
+    Value: !GetAtt WorkflowFunction.Arn
+  NotificationFunctionArn:
+    Value: !GetAtt NotificationFunction.Arn

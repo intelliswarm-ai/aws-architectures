@@ -1,0 +1,186 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'GPS Tracking - CloudWatch Monitoring'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  KinesisStreamName:
+    Type: String
+  ProducerFunctionName:
+    Type: String
+  DashboardConsumerFunctionName:
+    Type: String
+  GeofenceConsumerFunctionName:
+    Type: String
+  ArchiveConsumerFunctionName:
+    Type: String
+  AlarmEmail:
+    Type: String
+    Default: ''
+
+Conditions:
+  HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, '']]
+
+Resources:
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasAlarmEmail
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-alarms'
+
+  AlarmSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlarmEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  # Kinesis Alarms
+  KinesisWriteProvisionedThroughputExceeded:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-kinesis-write-exceeded'
+      AlarmDescription: Kinesis write throughput exceeded
+      MetricName: WriteProvisionedThroughputExceeded
+      Namespace: AWS/Kinesis
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: StreamName
+          Value: !Ref KinesisStreamName
+      AlarmActions:
+        - !If [HasAlarmEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  KinesisIteratorAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-kinesis-iterator-age'
+      AlarmDescription: Kinesis iterator age too high
+      MetricName: GetRecords.IteratorAgeMilliseconds
+      Namespace: AWS/Kinesis
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 300000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: StreamName
+          Value: !Ref KinesisStreamName
+      AlarmActions:
+        - !If [HasAlarmEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # Lambda Error Alarms
+  DashboardConsumerErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-dashboard-consumer-errors'
+      AlarmDescription: Dashboard consumer Lambda errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref DashboardConsumerFunctionName
+      AlarmActions:
+        - !If [HasAlarmEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # Dashboard
+  GPSTrackingDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-${Environment}-dashboard'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Kinesis Incoming Records",
+                "metrics": [
+                  ["AWS/Kinesis", "IncomingRecords", "StreamName", "${KinesisStreamName}"]
+                ],
+                "period": 60,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Kinesis Iterator Age",
+                "metrics": [
+                  ["AWS/Kinesis", "GetRecords.IteratorAgeMilliseconds", "StreamName", "${KinesisStreamName}"]
+                ],
+                "period": 60,
+                "stat": "Maximum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Invocations",
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${ProducerFunctionName}"],
+                  [".", ".", ".", "${DashboardConsumerFunctionName}"],
+                  [".", ".", ".", "${GeofenceConsumerFunctionName}"],
+                  [".", ".", ".", "${ArchiveConsumerFunctionName}"]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Errors",
+                "metrics": [
+                  ["AWS/Lambda", "Errors", "FunctionName", "${ProducerFunctionName}"],
+                  [".", ".", ".", "${DashboardConsumerFunctionName}"],
+                  [".", ".", ".", "${GeofenceConsumerFunctionName}"],
+                  [".", ".", ".", "${ArchiveConsumerFunctionName}"]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  DashboardName:
+    Description: CloudWatch dashboard name
+    Value: !Ref GPSTrackingDashboard
+
+  AlarmTopicArn:
+    Condition: HasAlarmEmail
+    Description: Alarm SNS topic ARN
+    Value: !Ref AlarmTopic

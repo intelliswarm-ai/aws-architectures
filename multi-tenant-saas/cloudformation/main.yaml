@@ -1,0 +1,228 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Enterprise Serverless Platform - Multi-Tenant SaaS with Cognito, Bedrock, and CRM Integration'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  ProjectName:
+    Type: String
+    Default: intelliswarm
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-sonnet-20240229-v1:0
+  NotificationEmail:
+    Type: String
+    Default: ''
+    Description: 'Email for notifications (optional)'
+  EnableWAF:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+  EnableCloudTrail:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'Environment Configuration'
+        Parameters:
+          - Environment
+          - ProjectName
+      - Label:
+          default: 'AI/ML Configuration'
+        Parameters:
+          - BedrockModelId
+      - Label:
+          default: 'Security'
+        Parameters:
+          - EnableWAF
+          - EnableCloudTrail
+      - Label:
+          default: 'Notifications'
+        Parameters:
+          - NotificationEmail
+
+Conditions:
+  EnableWAFCondition: !Equals [!Ref EnableWAF, 'true']
+  EnableCloudTrailCondition: !Equals [!Ref EnableCloudTrail, 'true']
+
+Resources:
+  # KMS Key
+  KMSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/kms.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  # Cognito User Pool
+  CognitoStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/cognito.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  # DynamoDB Tables
+  DynamoDBStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: KMSStack
+    Properties:
+      TemplateURL: ./nested/dynamodb.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        KMSKeyArn: !GetAtt KMSStack.Outputs.KMSKeyArn
+
+  # SQS Queues
+  SQSStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: KMSStack
+    Properties:
+      TemplateURL: ./nested/sqs.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        KMSKeyArn: !GetAtt KMSStack.Outputs.KMSKeyArn
+
+  # SNS Topics
+  SNSStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: KMSStack
+    Properties:
+      TemplateURL: ./nested/sns.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        KMSKeyArn: !GetAtt KMSStack.Outputs.KMSKeyArn
+        NotificationEmail: !Ref NotificationEmail
+
+  # Secrets Manager
+  SecretsStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: KMSStack
+    Properties:
+      TemplateURL: ./nested/secrets.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        KMSKeyArn: !GetAtt KMSStack.Outputs.KMSKeyArn
+
+  # IAM Roles
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - DynamoDBStack
+      - SQSStack
+      - SNSStack
+      - SecretsStack
+    Properties:
+      TemplateURL: ./nested/iam.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        TenantsTableArn: !GetAtt DynamoDBStack.Outputs.TenantsTableArn
+        EmailsTableArn: !GetAtt DynamoDBStack.Outputs.EmailsTableArn
+        CRMTableArn: !GetAtt DynamoDBStack.Outputs.CRMTableArn
+        AuditTableArn: !GetAtt DynamoDBStack.Outputs.AuditTableArn
+        AsyncQueueArn: !GetAtt SQSStack.Outputs.AsyncQueueArn
+        EventsTopicArn: !GetAtt SNSStack.Outputs.EventsTopicArn
+        KMSKeyArn: !GetAtt KMSStack.Outputs.KMSKeyArn
+
+  # Lambda Functions
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+      - CognitoStack
+      - DynamoDBStack
+      - SQSStack
+      - SNSStack
+    Properties:
+      TemplateURL: ./nested/lambda.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        LambdaRoleArn: !GetAtt IAMStack.Outputs.LambdaRoleArn
+        CognitoUserPoolId: !GetAtt CognitoStack.Outputs.UserPoolId
+        CognitoClientId: !GetAtt CognitoStack.Outputs.UserPoolClientId
+        TenantsTableName: !GetAtt DynamoDBStack.Outputs.TenantsTableName
+        EmailsTableName: !GetAtt DynamoDBStack.Outputs.EmailsTableName
+        CRMTableName: !GetAtt DynamoDBStack.Outputs.CRMTableName
+        AuditTableName: !GetAtt DynamoDBStack.Outputs.AuditTableName
+        AsyncQueueUrl: !GetAtt SQSStack.Outputs.AsyncQueueUrl
+        EventsTopicArn: !GetAtt SNSStack.Outputs.EventsTopicArn
+        BedrockModelId: !Ref BedrockModelId
+
+  # API Gateway
+  ApiGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+      - CognitoStack
+    Properties:
+      TemplateURL: ./nested/api-gateway.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        CognitoUserPoolArn: !GetAtt CognitoStack.Outputs.UserPoolArn
+        ApiHandlerArn: !GetAtt LambdaStack.Outputs.ApiHandlerArn
+        ApiHandlerName: !GetAtt LambdaStack.Outputs.ApiHandlerName
+        AuthorizerArn: !GetAtt LambdaStack.Outputs.AuthorizerArn
+        AuthorizerName: !GetAtt LambdaStack.Outputs.AuthorizerName
+
+  # EventBridge Rules
+  EventBridgeStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+    Properties:
+      TemplateURL: ./nested/eventbridge.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        SyncLambdaArn: !GetAtt LambdaStack.Outputs.SyncFunctionArn
+        SyncLambdaName: !GetAtt LambdaStack.Outputs.SyncFunctionName
+
+  # CloudWatch Monitoring
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+      - ApiGatewayStack
+    Properties:
+      TemplateURL: ./nested/cloudwatch.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        ApiHandlerName: !GetAtt LambdaStack.Outputs.ApiHandlerName
+        SyncFunctionName: !GetAtt LambdaStack.Outputs.SyncFunctionName
+        AnalysisFunctionName: !GetAtt LambdaStack.Outputs.AnalysisFunctionName
+        NotificationEmail: !Ref NotificationEmail
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint
+    Value: !GetAtt ApiGatewayStack.Outputs.ApiEndpoint
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !GetAtt CognitoStack.Outputs.UserPoolId
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !GetAtt CognitoStack.Outputs.UserPoolClientId
+  UserPoolDomain:
+    Description: Cognito User Pool Domain
+    Value: !GetAtt CognitoStack.Outputs.UserPoolDomain
+  TenantsTableName:
+    Description: DynamoDB Tenants Table
+    Value: !GetAtt DynamoDBStack.Outputs.TenantsTableName
+  DashboardUrl:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${ProjectName}-${Environment}-dashboard'

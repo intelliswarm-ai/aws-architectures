@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Enterprise Serverless Platform - SNS Topics'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  KMSKeyArn:
+    Type: String
+  NotificationEmail:
+    Type: String
+    Default: ''
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref NotificationEmail, '']]
+
+Resources:
+  EventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-events'
+      KmsMasterKeyId: !Ref KMSKeyArn
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-events'
+
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-alerts'
+      KmsMasterKeyId: !Ref KMSKeyArn
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-alerts'
+
+  AlertsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+Outputs:
+  EventsTopicArn:
+    Value: !Ref EventsTopic
+  AlertsTopicArn:
+    Value: !Ref AlertsTopic

@@ -1,0 +1,37 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'GPS Tracking - EventBridge Rules'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  ProducerFunctionArn:
+    Type: String
+  ProducerFunctionName:
+    Type: String
+
+Resources:
+  ProducerScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-gps-producer-schedule'
+      Description: Trigger GPS producer every 5 seconds
+      ScheduleExpression: 'rate(1 minute)'
+      State: ENABLED
+      Targets:
+        - Id: GPSProducer
+          Arn: !Ref ProducerFunctionArn
+
+  ProducerSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProducerFunctionName
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ProducerScheduleRule.Arn
+
+Outputs:
+  ScheduleRuleArn:
+    Description: Producer schedule rule ARN
+    Value: !GetAtt ProducerScheduleRule.Arn

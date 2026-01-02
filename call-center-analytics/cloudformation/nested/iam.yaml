@@ -1,0 +1,127 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Call Sentiment Analysis - IAM Roles and Policies'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  TranscriptsBucketArn:
+    Type: String
+  OutputBucketArn:
+    Type: String
+  OpenSearchDomainArn:
+    Type: String
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Ref TranscriptsBucketArn
+                  - !Sub '${TranscriptsBucketArn}/*'
+                  - !Ref OutputBucketArn
+                  - !Sub '${OutputBucketArn}/*'
+        - PolicyName: ComprehendAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - comprehend:DetectSentiment
+                  - comprehend:DetectEntities
+                  - comprehend:DetectKeyPhrases
+                  - comprehend:DetectDominantLanguage
+                  - comprehend:BatchDetectSentiment
+                  - comprehend:StartSentimentDetectionJob
+                  - comprehend:DescribeSentimentDetectionJob
+                  - comprehend:ListSentimentDetectionJobs
+                Resource: '*'
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:ESHttpGet
+                  - es:ESHttpPost
+                  - es:ESHttpPut
+                  - es:ESHttpDelete
+                  - es:ESHttpHead
+                Resource:
+                  - !Ref OpenSearchDomainArn
+                  - !Sub '${OpenSearchDomainArn}/*'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  ComprehendRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-comprehend-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: comprehend.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Ref TranscriptsBucketArn
+                  - !Sub '${TranscriptsBucketArn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
+                  - !Ref OutputBucketArn
+                  - !Sub '${OutputBucketArn}/*'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+Outputs:
+  LambdaExecutionRoleArn:
+    Description: Lambda execution role ARN
+    Value: !GetAtt LambdaExecutionRole.Arn
+
+  LambdaExecutionRoleName:
+    Description: Lambda execution role name
+    Value: !Ref LambdaExecutionRole
+
+  ComprehendRoleArn:
+    Description: Comprehend role ARN
+    Value: !GetAtt ComprehendRole.Arn

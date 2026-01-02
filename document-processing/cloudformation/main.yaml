@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Platform - Intelligent Document Processing with AWS AI/ML Services'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  ProjectName:
+    Type: String
+    Default: ml-platform
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-sonnet-20240229-v1:0
+    Description: Bedrock model for generative AI
+  EnablePiiDetection:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+  EnableModeration:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+  CreateSageMakerEndpoint:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  SageMakerInstanceType:
+    Type: String
+    Default: ml.t2.medium
+  NotificationEmail:
+    Type: String
+    Default: ''
+    Description: 'Email for notifications (optional)'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'Environment Configuration'
+        Parameters:
+          - Environment
+          - ProjectName
+      - Label:
+          default: 'AI/ML Configuration'
+        Parameters:
+          - BedrockModelId
+          - EnablePiiDetection
+          - EnableModeration
+      - Label:
+          default: 'SageMaker Configuration'
+        Parameters:
+          - CreateSageMakerEndpoint
+          - SageMakerInstanceType
+      - Label:
+          default: 'Notifications'
+        Parameters:
+          - NotificationEmail
+
+Conditions:
+  CreateSageMaker: !Equals [!Ref CreateSageMakerEndpoint, 'true']
+
+Resources:
+  # S3 Buckets Stack
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/s3.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  # DynamoDB Stack
+  DynamoDBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/dynamodb.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  # SQS Stack
+  SQSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/sqs.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  # SNS Stack
+  SNSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/sns.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        NotificationEmail: !Ref NotificationEmail
+
+  # IAM Stack
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - S3Stack
+      - DynamoDBStack
+      - SQSStack
+      - SNSStack
+    Properties:
+      TemplateURL: ./nested/iam.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        RawBucketArn: !GetAtt S3Stack.Outputs.RawBucketArn
+        ProcessedBucketArn: !GetAtt S3Stack.Outputs.ProcessedBucketArn
+        ModelBucketArn: !GetAtt S3Stack.Outputs.ModelBucketArn
+        DocumentsTableArn: !GetAtt DynamoDBStack.Outputs.DocumentsTableArn
+        ProcessingQueueArn: !GetAtt SQSStack.Outputs.ProcessingQueueArn
+        DlqArn: !GetAtt SQSStack.Outputs.DlqArn
+        SuccessTopicArn: !GetAtt SNSStack.Outputs.SuccessTopicArn
+        FailureTopicArn: !GetAtt SNSStack.Outputs.FailureTopicArn
+        AlertTopicArn: !GetAtt SNSStack.Outputs.AlertTopicArn
+
+  # Step Functions Stack
+  StepFunctionsStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+      - SNSStack
+    Properties:
+      TemplateURL: ./nested/step-functions.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        WorkflowLambdaArn: !GetAtt LambdaStack.Outputs.WorkflowFunctionArn
+        ExtractionLambdaArn: !GetAtt LambdaStack.Outputs.ExtractionFunctionArn
+        TranscriptionLambdaArn: !GetAtt LambdaStack.Outputs.TranscriptionFunctionArn
+        AnalysisLambdaArn: !GetAtt LambdaStack.Outputs.AnalysisFunctionArn
+        InferenceLambdaArn: !GetAtt LambdaStack.Outputs.InferenceFunctionArn
+        BedrockLambdaArn: !GetAtt LambdaStack.Outputs.BedrockFunctionArn
+        SuccessTopicArn: !GetAtt SNSStack.Outputs.SuccessTopicArn
+        FailureTopicArn: !GetAtt SNSStack.Outputs.FailureTopicArn
+
+  # Lambda Stack
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+      - S3Stack
+      - DynamoDBStack
+      - SQSStack
+      - SNSStack
+    Properties:
+      TemplateURL: ./nested/lambda.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        LambdaRoleArn: !GetAtt IAMStack.Outputs.LambdaRoleArn
+        RawBucketName: !GetAtt S3Stack.Outputs.RawBucketName
+        ProcessedBucketName: !GetAtt S3Stack.Outputs.ProcessedBucketName
+        ModelBucketName: !GetAtt S3Stack.Outputs.ModelBucketName
+        DocumentsTableName: !GetAtt DynamoDBStack.Outputs.DocumentsTableName
+        ProcessingQueueUrl: !GetAtt SQSStack.Outputs.ProcessingQueueUrl
+        SuccessTopicArn: !GetAtt SNSStack.Outputs.SuccessTopicArn
+        FailureTopicArn: !GetAtt SNSStack.Outputs.FailureTopicArn
+        AlertTopicArn: !GetAtt SNSStack.Outputs.AlertTopicArn
+        BedrockModelId: !Ref BedrockModelId
+        EnablePiiDetection: !Ref EnablePiiDetection
+        EnableModeration: !Ref EnableModeration
+
+  # API Gateway Stack
+  ApiGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+    Properties:
+      TemplateURL: ./nested/api-gateway.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        InferenceLambdaArn: !GetAtt LambdaStack.Outputs.InferenceFunctionArn
+        InferenceLambdaName: !GetAtt LambdaStack.Outputs.InferenceFunctionName
+        BedrockLambdaArn: !GetAtt LambdaStack.Outputs.BedrockFunctionArn
+        BedrockLambdaName: !GetAtt LambdaStack.Outputs.BedrockFunctionName
+
+  # SageMaker Stack (Optional)
+  SageMakerStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: CreateSageMaker
+    DependsOn:
+      - IAMStack
+      - S3Stack
+    Properties:
+      TemplateURL: ./nested/sagemaker.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        SageMakerRoleArn: !GetAtt IAMStack.Outputs.SageMakerRoleArn
+        ModelBucketName: !GetAtt S3Stack.Outputs.ModelBucketName
+        InstanceType: !Ref SageMakerInstanceType
+
+  # CloudWatch Stack
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+      - StepFunctionsStack
+    Properties:
+      TemplateURL: ./nested/cloudwatch.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        IngestionFunctionName: !GetAtt LambdaStack.Outputs.IngestionFunctionName
+        ExtractionFunctionName: !GetAtt LambdaStack.Outputs.ExtractionFunctionName
+        AnalysisFunctionName: !GetAtt LambdaStack.Outputs.AnalysisFunctionName
+        InferenceFunctionName: !GetAtt LambdaStack.Outputs.InferenceFunctionName
+        BedrockFunctionName: !GetAtt LambdaStack.Outputs.BedrockFunctionName
+        WorkflowName: !GetAtt StepFunctionsStack.Outputs.WorkflowName
+        NotificationEmail: !Ref NotificationEmail
+
+Outputs:
+  RawBucketName:
+    Description: Raw documents S3 bucket
+    Value: !GetAtt S3Stack.Outputs.RawBucketName
+  ProcessedBucketName:
+    Description: Processed results S3 bucket
+    Value: !GetAtt S3Stack.Outputs.ProcessedBucketName
+  ApiEndpoint:
+    Description: API Gateway endpoint
+    Value: !GetAtt ApiGatewayStack.Outputs.ApiEndpoint
+  WorkflowArn:
+    Description: Step Functions workflow ARN
+    Value: !GetAtt StepFunctionsStack.Outputs.WorkflowArn
+  DashboardUrl:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${ProjectName}-${Environment}-dashboard'

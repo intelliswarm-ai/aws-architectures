@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SMS Marketing - IAM Roles'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  ArchiveBucketArn:
+    Type: String
+  SubscribersTableArn:
+    Type: String
+  CampaignsTableArn:
+    Type: String
+  ResponsesTableArn:
+    Type: String
+  KinesisStreamArn:
+    Type: String
+  OptOutTopicArn:
+    Type: String
+
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Ref SubscribersTableArn
+                  - !Sub '${SubscribersTableArn}/index/*'
+                  - !Ref CampaignsTableArn
+                  - !Sub '${CampaignsTableArn}/index/*'
+                  - !Ref ResponsesTableArn
+                  - !Sub '${ResponsesTableArn}/index/*'
+        - PolicyName: KinesisAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kinesis:PutRecord
+                  - kinesis:PutRecords
+                  - kinesis:GetRecords
+                  - kinesis:GetShardIterator
+                  - kinesis:DescribeStream
+                  - kinesis:ListShards
+                Resource: !Ref KinesisStreamArn
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub '${ArchiveBucketArn}/*'
+        - PolicyName: SNSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref OptOutTopicArn
+        - PolicyName: PinpointAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - mobiletargeting:SendMessages
+                  - mobiletargeting:GetEndpoint
+                  - mobiletargeting:UpdateEndpoint
+                Resource: '*'
+
+Outputs:
+  LambdaRoleArn:
+    Value: !GetAtt LambdaRole.Arn

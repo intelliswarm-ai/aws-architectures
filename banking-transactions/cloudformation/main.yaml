@@ -1,0 +1,226 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Banking Platform - Main CloudFormation Stack with SQS-based EC2 Auto Scaling'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  ProjectName:
+    Type: String
+    Default: banking-platform
+  VpcCidr:
+    Type: String
+    Default: '10.0.0.0/16'
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t3.small, t3.medium]
+  MinSize:
+    Type: Number
+    Default: 2
+    MinValue: 1
+  MaxSize:
+    Type: Number
+    Default: 10
+    MinValue: 2
+  TargetMessagesPerInstance:
+    Type: Number
+    Default: 100
+  EnableNatGateway:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  EnableVpcEndpoints:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+  AlarmEmail:
+    Type: String
+    Default: ''
+    Description: 'Email for CloudWatch alarms (optional)'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'Environment Configuration'
+        Parameters:
+          - Environment
+          - ProjectName
+      - Label:
+          default: 'Network Configuration'
+        Parameters:
+          - VpcCidr
+          - EnableNatGateway
+          - EnableVpcEndpoints
+      - Label:
+          default: 'Auto Scaling Configuration'
+        Parameters:
+          - InstanceType
+          - MinSize
+          - MaxSize
+          - TargetMessagesPerInstance
+      - Label:
+          default: 'Monitoring'
+        Parameters:
+          - AlarmEmail
+
+Resources:
+  # VPC Stack
+  VpcStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/vpc.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        VpcCidr: !Ref VpcCidr
+        EnableNatGateway: !Ref EnableNatGateway
+        EnableVpcEndpoints: !Ref EnableVpcEndpoints
+
+  # S3 Stack
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/s3.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  # DynamoDB Stack
+  DynamoDBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/dynamodb.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  # SQS Stack
+  SQSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/sqs.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  # IAM Stack
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - SQSStack
+      - DynamoDBStack
+      - S3Stack
+    Properties:
+      TemplateURL: ./nested/iam.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        TransactionsTableArn: !GetAtt DynamoDBStack.Outputs.TransactionsTableArn
+        IdempotencyTableArn: !GetAtt DynamoDBStack.Outputs.IdempotencyTableArn
+        DlqRecordsTableArn: !GetAtt DynamoDBStack.Outputs.DlqRecordsTableArn
+        TransactionQueueArn: !GetAtt SQSStack.Outputs.TransactionQueueArn
+        DlqArn: !GetAtt SQSStack.Outputs.DlqArn
+        DeploymentBucketArn: !GetAtt S3Stack.Outputs.DeploymentBucketArn
+
+  # CloudWatch Stack
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - SQSStack
+    Properties:
+      TemplateURL: ./nested/cloudwatch.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        TransactionQueueName: !GetAtt SQSStack.Outputs.TransactionQueueName
+        DlqName: !GetAtt SQSStack.Outputs.DlqName
+        AlarmEmail: !Ref AlarmEmail
+
+  # Lambda Stack
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+      - DynamoDBStack
+      - SQSStack
+      - CloudWatchStack
+    Properties:
+      TemplateURL: ./nested/lambda.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        LambdaRoleArn: !GetAtt IAMStack.Outputs.LambdaRoleArn
+        TransactionsTableName: !GetAtt DynamoDBStack.Outputs.TransactionsTableName
+        IdempotencyTableName: !GetAtt DynamoDBStack.Outputs.IdempotencyTableName
+        DlqRecordsTableName: !GetAtt DynamoDBStack.Outputs.DlqRecordsTableName
+        TransactionQueueUrl: !GetAtt SQSStack.Outputs.TransactionQueueUrl
+        DlqUrl: !GetAtt SQSStack.Outputs.DlqUrl
+        DlqArn: !GetAtt SQSStack.Outputs.DlqArn
+
+  # API Gateway Stack
+  ApiGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+    Properties:
+      TemplateURL: ./nested/api-gateway.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        ApiHandlerArn: !GetAtt LambdaStack.Outputs.ApiHandlerArn
+        ApiHandlerName: !GetAtt LambdaStack.Outputs.ApiHandlerName
+
+  # EC2 Auto Scaling Stack
+  EC2Stack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - VpcStack
+      - IAMStack
+      - SQSStack
+      - DynamoDBStack
+      - S3Stack
+      - CloudWatchStack
+    Properties:
+      TemplateURL: ./nested/ec2.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        VpcId: !GetAtt VpcStack.Outputs.VpcId
+        PublicSubnetIds: !GetAtt VpcStack.Outputs.PublicSubnetIds
+        PrivateSubnetIds: !GetAtt VpcStack.Outputs.PrivateSubnetIds
+        InstanceType: !Ref InstanceType
+        MinSize: !Ref MinSize
+        MaxSize: !Ref MaxSize
+        TargetMessagesPerInstance: !Ref TargetMessagesPerInstance
+        EC2InstanceProfileArn: !GetAtt IAMStack.Outputs.EC2InstanceProfileArn
+        TransactionQueueUrl: !GetAtt SQSStack.Outputs.TransactionQueueUrl
+        TransactionsTableName: !GetAtt DynamoDBStack.Outputs.TransactionsTableName
+        IdempotencyTableName: !GetAtt DynamoDBStack.Outputs.IdempotencyTableName
+        S3BucketName: !GetAtt S3Stack.Outputs.DeploymentBucketName
+        LogGroupName: !GetAtt CloudWatchStack.Outputs.ProcessorLogGroupName
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !GetAtt VpcStack.Outputs.VpcId
+  ApiEndpoint:
+    Description: HTTP API endpoint URL
+    Value: !GetAtt ApiGatewayStack.Outputs.ApiEndpoint
+  TransactionQueueUrl:
+    Description: Transaction SQS Queue URL
+    Value: !GetAtt SQSStack.Outputs.TransactionQueueUrl
+  DlqUrl:
+    Description: Dead Letter Queue URL
+    Value: !GetAtt SQSStack.Outputs.DlqUrl
+  ALBDnsName:
+    Description: Application Load Balancer DNS name
+    Value: !GetAtt EC2Stack.Outputs.ALBDnsName
+  AutoScalingGroupName:
+    Description: Auto Scaling Group name
+    Value: !GetAtt EC2Stack.Outputs.AutoScalingGroupName
+  DashboardUrl:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${ProjectName}-${Environment}-dashboard'

@@ -1,0 +1,50 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Task Automation - EventBridge Rules'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  StateMachineArn:
+    Type: String
+
+Resources:
+  EventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-eventbridge-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeStepFunctions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource: !Ref StateMachineArn
+
+  HourlyTaskRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-hourly-tasks'
+      Description: Trigger task processing every hour
+      ScheduleExpression: 'rate(1 hour)'
+      State: ENABLED
+      Targets:
+        - Id: StepFunctionsTarget
+          Arn: !Ref StateMachineArn
+          RoleArn: !GetAtt EventBridgeRole.Arn
+          Input: '{"type": "scheduled", "source": "hourly"}'
+
+Outputs:
+  HourlyRuleArn:
+    Description: Hourly rule ARN
+    Value: !GetAtt HourlyTaskRule.Arn

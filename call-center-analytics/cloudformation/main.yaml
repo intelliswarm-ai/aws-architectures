@@ -1,0 +1,260 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Call Sentiment Analysis Platform - Main Stack'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Default: call-sentiment
+    Description: Project name prefix
+
+  OpenSearchInstanceType:
+    Type: String
+    Default: t3.small.search
+    AllowedValues:
+      - t3.small.search
+      - t3.medium.search
+      - m6g.large.search
+      - r6g.large.search
+    Description: OpenSearch instance type
+
+  OpenSearchInstanceCount:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 10
+    Description: Number of OpenSearch instances
+
+  OpenSearchVolumeSize:
+    Type: Number
+    Default: 100
+    MinValue: 10
+    MaxValue: 1000
+    Description: EBS volume size in GB
+
+  OpenSearchMasterUser:
+    Type: String
+    Default: admin
+    Description: OpenSearch master username
+
+  OpenSearchMasterPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: OpenSearch master password
+
+  RetentionDays:
+    Type: Number
+    Default: 90
+    Description: Data retention period in days
+
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    Description: CloudWatch log retention period
+
+  AlarmEmail:
+    Type: String
+    Default: ''
+    Description: Email for CloudWatch alarms
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: General Configuration
+        Parameters:
+          - Environment
+          - ProjectName
+      - Label:
+          default: OpenSearch Configuration
+        Parameters:
+          - OpenSearchInstanceType
+          - OpenSearchInstanceCount
+          - OpenSearchVolumeSize
+          - OpenSearchMasterUser
+          - OpenSearchMasterPassword
+      - Label:
+          default: Retention Settings
+        Parameters:
+          - RetentionDays
+          - LogRetentionDays
+      - Label:
+          default: Monitoring
+        Parameters:
+          - AlarmEmail
+
+Resources:
+  # S3 Buckets
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/s3.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        RetentionDays: !Ref RetentionDays
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Roles
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - S3Stack
+      - OpenSearchStack
+    Properties:
+      TemplateURL: ./nested/iam.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        TranscriptsBucketArn: !GetAtt S3Stack.Outputs.TranscriptsBucketArn
+        OutputBucketArn: !GetAtt S3Stack.Outputs.OutputBucketArn
+        OpenSearchDomainArn: !GetAtt OpenSearchStack.Outputs.DomainArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # OpenSearch Domain
+  OpenSearchStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/opensearch.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        InstanceType: !Ref OpenSearchInstanceType
+        InstanceCount: !Ref OpenSearchInstanceCount
+        VolumeSize: !Ref OpenSearchVolumeSize
+        MasterUserName: !Ref OpenSearchMasterUser
+        MasterUserPassword: !Ref OpenSearchMasterPassword
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Functions
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+      - S3Stack
+      - OpenSearchStack
+    Properties:
+      TemplateURL: ./nested/lambda.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        LambdaExecutionRoleArn: !GetAtt IAMStack.Outputs.LambdaExecutionRoleArn
+        ComprehendRoleArn: !GetAtt IAMStack.Outputs.ComprehendRoleArn
+        TranscriptsBucket: !GetAtt S3Stack.Outputs.TranscriptsBucketName
+        OutputBucket: !GetAtt S3Stack.Outputs.OutputBucketName
+        OpenSearchEndpoint: !GetAtt OpenSearchStack.Outputs.DomainEndpoint
+        LogRetentionDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # API Gateway
+  APIGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+    Properties:
+      TemplateURL: ./nested/api-gateway.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        ApiHandlerArn: !GetAtt LambdaStack.Outputs.ApiHandlerArn
+        ApiHandlerName: !GetAtt LambdaStack.Outputs.ApiHandlerName
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # EventBridge Rules
+  EventBridgeStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+    Properties:
+      TemplateURL: ./nested/eventbridge.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        ComprehendHandlerArn: !GetAtt LambdaStack.Outputs.ComprehendHandlerArn
+        ComprehendHandlerName: !GetAtt LambdaStack.Outputs.ComprehendHandlerName
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # CloudWatch Monitoring
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+      - OpenSearchStack
+    Properties:
+      TemplateURL: ./nested/cloudwatch.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        OpenSearchDomainName: !GetAtt OpenSearchStack.Outputs.DomainName
+        TranscriptProcessorName: !GetAtt LambdaStack.Outputs.TranscriptProcessorName
+        ComprehendHandlerName: !GetAtt LambdaStack.Outputs.ComprehendHandlerName
+        ResultIndexerName: !GetAtt LambdaStack.Outputs.ResultIndexerName
+        ApiHandlerName: !GetAtt LambdaStack.Outputs.ApiHandlerName
+        AlarmEmail: !Ref AlarmEmail
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  TranscriptsBucket:
+    Description: S3 bucket for transcripts
+    Value: !GetAtt S3Stack.Outputs.TranscriptsBucketName
+
+  OutputBucket:
+    Description: S3 bucket for output
+    Value: !GetAtt S3Stack.Outputs.OutputBucketName
+
+  OpenSearchEndpoint:
+    Description: OpenSearch domain endpoint
+    Value: !GetAtt OpenSearchStack.Outputs.DomainEndpoint
+
+  OpenSearchDashboardUrl:
+    Description: OpenSearch Dashboards URL
+    Value: !GetAtt OpenSearchStack.Outputs.DashboardUrl
+
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !GetAtt APIGatewayStack.Outputs.ApiEndpoint
+
+  TranscriptProcessorFunction:
+    Description: Transcript processor Lambda function
+    Value: !GetAtt LambdaStack.Outputs.TranscriptProcessorName
+
+  ApiHandlerFunction:
+    Description: API handler Lambda function
+    Value: !GetAtt LambdaStack.Outputs.ApiHandlerName

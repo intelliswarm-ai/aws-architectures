@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SMS Marketing - SNS Topics'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  AlarmEmail:
+    Type: String
+    Default: ''
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref AlarmEmail, '']]
+
+Resources:
+  OptOutTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-opt-out-alerts'
+      KmsMasterKeyId: alias/aws/sns
+
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref OptOutTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+Outputs:
+  OptOutTopicArn:
+    Value: !Ref OptOutTopic

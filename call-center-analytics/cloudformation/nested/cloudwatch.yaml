@@ -1,0 +1,216 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Call Sentiment Analysis - CloudWatch Monitoring'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  OpenSearchDomainName:
+    Type: String
+  TranscriptProcessorName:
+    Type: String
+  ComprehendHandlerName:
+    Type: String
+  ResultIndexerName:
+    Type: String
+  ApiHandlerName:
+    Type: String
+  AlarmEmail:
+    Type: String
+    Default: ''
+
+Conditions:
+  HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, '']]
+
+Resources:
+  # SNS Topic for Alarms
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasAlarmEmail
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-alarms'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  AlarmSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlarmEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  # Lambda Error Alarms
+  TranscriptProcessorErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-transcript-processor-errors'
+      AlarmDescription: Errors in transcript processor Lambda
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref TranscriptProcessorName
+      AlarmActions:
+        - !If [HasAlarmEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  ApiHandlerErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-api-handler-errors'
+      AlarmDescription: Errors in API handler Lambda
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiHandlerName
+      AlarmActions:
+        - !If [HasAlarmEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # OpenSearch Alarms
+  OpenSearchClusterRedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-opensearch-cluster-red'
+      AlarmDescription: OpenSearch cluster status is red
+      MetricName: ClusterStatus.red
+      Namespace: AWS/ES
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DomainName
+          Value: !Ref OpenSearchDomainName
+        - Name: ClientId
+          Value: !Ref AWS::AccountId
+      AlarmActions:
+        - !If [HasAlarmEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  OpenSearchFreeStorageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-opensearch-low-storage'
+      AlarmDescription: OpenSearch free storage is low
+      MetricName: FreeStorageSpace
+      Namespace: AWS/ES
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5000
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+        - Name: DomainName
+          Value: !Ref OpenSearchDomainName
+        - Name: ClientId
+          Value: !Ref AWS::AccountId
+      AlarmActions:
+        - !If [HasAlarmEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # Dashboard
+  MonitoringDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-${Environment}-dashboard'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Invocations",
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${TranscriptProcessorName}"],
+                  [".", ".", ".", "${ComprehendHandlerName}"],
+                  [".", ".", ".", "${ResultIndexerName}"],
+                  [".", ".", ".", "${ApiHandlerName}"]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Errors",
+                "metrics": [
+                  ["AWS/Lambda", "Errors", "FunctionName", "${TranscriptProcessorName}"],
+                  [".", ".", ".", "${ComprehendHandlerName}"],
+                  [".", ".", ".", "${ResultIndexerName}"],
+                  [".", ".", ".", "${ApiHandlerName}"]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "OpenSearch Cluster Health",
+                "metrics": [
+                  ["AWS/ES", "ClusterStatus.green", "DomainName", "${OpenSearchDomainName}", "ClientId", "${AWS::AccountId}"],
+                  [".", "ClusterStatus.yellow", ".", ".", ".", "."],
+                  [".", "ClusterStatus.red", ".", ".", ".", "."]
+                ],
+                "period": 60,
+                "stat": "Maximum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "OpenSearch Storage",
+                "metrics": [
+                  ["AWS/ES", "FreeStorageSpace", "DomainName", "${OpenSearchDomainName}", "ClientId", "${AWS::AccountId}"]
+                ],
+                "period": 300,
+                "stat": "Minimum",
+                "region": "${AWS::Region}"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  AlarmTopicArn:
+    Condition: HasAlarmEmail
+    Description: SNS topic for alarms
+    Value: !Ref AlarmTopic
+
+  DashboardName:
+    Description: CloudWatch dashboard name
+    Value: !Ref MonitoringDashboard

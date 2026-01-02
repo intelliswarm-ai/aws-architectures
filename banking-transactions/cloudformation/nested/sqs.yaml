@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Banking Platform - SQS Queues with Dead Letter Queue'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  VisibilityTimeout:
+    Type: Number
+    Default: 60
+  MessageRetentionSeconds:
+    Type: Number
+    Default: 1209600
+  MaxReceiveCount:
+    Type: Number
+    Default: 3
+
+Resources:
+  # Dead Letter Queue
+  TransactionDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-transactions-dlq'
+      MessageRetentionPeriod: 1209600
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-transactions-dlq'
+        - Key: Type
+          Value: DeadLetterQueue
+
+  # Main Transaction Queue
+  TransactionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-transactions'
+      VisibilityTimeout: !Ref VisibilityTimeout
+      MessageRetentionPeriod: !Ref MessageRetentionSeconds
+      ReceiveMessageWaitTimeSeconds: 20
+      DelaySeconds: 0
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt TransactionDLQ.Arn
+        maxReceiveCount: !Ref MaxReceiveCount
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-transactions'
+        - Key: Type
+          Value: MainQueue
+
+  # DLQ Redrive Allow Policy
+  DLQRedriveAllowPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref TransactionDLQ
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowRedriveFromMainQueue
+            Effect: Allow
+            Principal:
+              Service: sqs.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt TransactionDLQ.Arn
+            Condition:
+              ArnEquals:
+                'aws:SourceArn': !GetAtt TransactionQueue.Arn
+
+  # Queue Policy for Lambda access
+  TransactionQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref TransactionQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowLambdaSendMessage
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt TransactionQueue.Arn
+            Condition:
+              ArnLike:
+                'aws:SourceArn': !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-${Environment}-*'
+
+Outputs:
+  TransactionQueueArn:
+    Value: !GetAtt TransactionQueue.Arn
+  TransactionQueueUrl:
+    Value: !Ref TransactionQueue
+  TransactionQueueName:
+    Value: !GetAtt TransactionQueue.QueueName
+  DlqArn:
+    Value: !GetAtt TransactionDLQ.Arn
+  DlqUrl:
+    Value: !Ref TransactionDLQ
+  DlqName:
+    Value: !GetAtt TransactionDLQ.QueueName

@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Enterprise Serverless Platform - SQS Queues'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  KMSKeyArn:
+    Type: String
+
+Resources:
+  # Dead Letter Queue
+  AsyncDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-async-dlq'
+      MessageRetentionPeriod: 1209600
+      KmsMasterKeyId: !Ref KMSKeyArn
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-async-dlq'
+
+  # Async Processing Queue
+  AsyncQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-async'
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600
+      ReceiveMessageWaitTimeSeconds: 20
+      KmsMasterKeyId: !Ref KMSKeyArn
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt AsyncDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-async'
+
+  # Email Processing Queue
+  EmailDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-email-dlq'
+      MessageRetentionPeriod: 1209600
+      KmsMasterKeyId: !Ref KMSKeyArn
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-email-dlq'
+
+  EmailQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-email-processing'
+      VisibilityTimeout: 600
+      MessageRetentionPeriod: 1209600
+      ReceiveMessageWaitTimeSeconds: 20
+      KmsMasterKeyId: !Ref KMSKeyArn
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EmailDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-email-processing'
+
+Outputs:
+  AsyncQueueArn:
+    Value: !GetAtt AsyncQueue.Arn
+  AsyncQueueUrl:
+    Value: !Ref AsyncQueue
+  AsyncDLQArn:
+    Value: !GetAtt AsyncDLQ.Arn
+  EmailQueueArn:
+    Value: !GetAtt EmailQueue.Arn
+  EmailQueueUrl:
+    Value: !Ref EmailQueue

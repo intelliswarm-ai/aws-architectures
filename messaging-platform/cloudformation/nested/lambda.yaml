@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SMS Marketing - Lambda Functions'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  LambdaRoleArn:
+    Type: String
+  SubscribersTableName:
+    Type: String
+  CampaignsTableName:
+    Type: String
+  ResponsesTableName:
+    Type: String
+  KinesisStreamName:
+    Type: String
+  ArchiveBucketName:
+    Type: String
+  OptOutTopicArn:
+    Type: String
+
+Resources:
+  CampaignSenderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-campaign-sender'
+      Runtime: python3.12
+      Handler: campaign_sender.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          SUBSCRIBERS_TABLE: !Ref SubscribersTableName
+          CAMPAIGNS_TABLE: !Ref CampaignsTableName
+          KINESIS_STREAM: !Ref KinesisStreamName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          def handler(event, context):
+              # Placeholder for SMS campaign sender
+              return {'statusCode': 200, 'body': 'Campaign sent'}
+
+  CampaignSenderLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${CampaignSenderFunction}'
+      RetentionInDays: 30
+
+  ResponseHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-response-handler'
+      Runtime: python3.12
+      Handler: response_handler.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 60
+      MemorySize: 256
+      Environment:
+        Variables:
+          SUBSCRIBERS_TABLE: !Ref SubscribersTableName
+          RESPONSES_TABLE: !Ref ResponsesTableName
+          OPTOUT_TOPIC: !Ref OptOutTopicArn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          def handler(event, context):
+              # Placeholder for SMS response handler
+              return {'statusCode': 200, 'body': 'Response processed'}
+
+  ResponseHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ResponseHandlerFunction}'
+      RetentionInDays: 30
+
+  AnalyticsProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-analytics-processor'
+      Runtime: python3.12
+      Handler: analytics_processor.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          ARCHIVE_BUCKET: !Ref ArchiveBucketName
+          KINESIS_STREAM: !Ref KinesisStreamName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          def handler(event, context):
+              # Placeholder for analytics processor
+              return {'statusCode': 200, 'body': 'Analytics processed'}
+
+  AnalyticsProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AnalyticsProcessorFunction}'
+      RetentionInDays: 30
+
+Outputs:
+  CampaignSenderArn:
+    Value: !GetAtt CampaignSenderFunction.Arn
+  CampaignSenderName:
+    Value: !Ref CampaignSenderFunction
+  ResponseHandlerArn:
+    Value: !GetAtt ResponseHandlerFunction.Arn
+  ResponseHandlerName:
+    Value: !Ref ResponseHandlerFunction
+  AnalyticsProcessorArn:
+    Value: !GetAtt AnalyticsProcessorFunction.Arn
+  AnalyticsProcessorName:
+    Value: !Ref AnalyticsProcessorFunction

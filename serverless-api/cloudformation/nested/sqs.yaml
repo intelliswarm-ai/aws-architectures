@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Task Automation - SQS Queues'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+
+Resources:
+  TaskDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-task-dlq'
+      MessageRetentionPeriod: 1209600
+      KmsMasterKeyId: alias/aws/sqs
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  TaskQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-task-queue'
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 345600
+      KmsMasterKeyId: alias/aws/sqs
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt TaskDeadLetterQueue.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+Outputs:
+  TaskQueueUrl:
+    Description: Task queue URL
+    Value: !Ref TaskQueue
+
+  TaskQueueArn:
+    Description: Task queue ARN
+    Value: !GetAtt TaskQueue.Arn
+
+  DLQUrl:
+    Description: DLQ URL
+    Value: !Ref TaskDeadLetterQueue
+
+  DLQArn:
+    Description: DLQ ARN
+    Value: !GetAtt TaskDeadLetterQueue.Arn

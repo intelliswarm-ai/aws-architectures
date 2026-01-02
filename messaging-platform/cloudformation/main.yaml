@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SMS Marketing Platform with Amazon Pinpoint - Main Stack'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+  ProjectName:
+    Type: String
+    Default: sms-marketing
+
+  KinesisShardCount:
+    Type: Number
+    Default: 2
+
+  RetentionDays:
+    Type: Number
+    Default: 365
+
+  AlarmEmail:
+    Type: String
+    Default: ''
+
+Resources:
+  # S3 Buckets
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/s3.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        RetentionDays: !Ref RetentionDays
+
+  # DynamoDB Tables
+  DynamoDBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/dynamodb.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  # Kinesis Stream
+  KinesisStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/kinesis.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        ShardCount: !Ref KinesisShardCount
+
+  # SNS Topics
+  SNSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/sns.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        AlarmEmail: !Ref AlarmEmail
+
+  # IAM Roles
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [S3Stack, DynamoDBStack, KinesisStack, SNSStack]
+    Properties:
+      TemplateURL: ./nested/iam.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        ArchiveBucketArn: !GetAtt S3Stack.Outputs.ArchiveBucketArn
+        SubscribersTableArn: !GetAtt DynamoDBStack.Outputs.SubscribersTableArn
+        CampaignsTableArn: !GetAtt DynamoDBStack.Outputs.CampaignsTableArn
+        ResponsesTableArn: !GetAtt DynamoDBStack.Outputs.ResponsesTableArn
+        KinesisStreamArn: !GetAtt KinesisStack.Outputs.StreamArn
+        OptOutTopicArn: !GetAtt SNSStack.Outputs.OptOutTopicArn
+
+  # Lambda Functions
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [IAMStack]
+    Properties:
+      TemplateURL: ./nested/lambda.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        LambdaRoleArn: !GetAtt IAMStack.Outputs.LambdaRoleArn
+        SubscribersTableName: !GetAtt DynamoDBStack.Outputs.SubscribersTableName
+        CampaignsTableName: !GetAtt DynamoDBStack.Outputs.CampaignsTableName
+        ResponsesTableName: !GetAtt DynamoDBStack.Outputs.ResponsesTableName
+        KinesisStreamName: !GetAtt KinesisStack.Outputs.StreamName
+        ArchiveBucketName: !GetAtt S3Stack.Outputs.ArchiveBucketName
+        OptOutTopicArn: !GetAtt SNSStack.Outputs.OptOutTopicArn
+
+  # CloudWatch
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [LambdaStack]
+    Properties:
+      TemplateURL: ./nested/cloudwatch.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        CampaignSenderName: !GetAtt LambdaStack.Outputs.CampaignSenderName
+        ResponseHandlerName: !GetAtt LambdaStack.Outputs.ResponseHandlerName
+        AnalyticsProcessorName: !GetAtt LambdaStack.Outputs.AnalyticsProcessorName
+        AlarmEmail: !Ref AlarmEmail
+
+Outputs:
+  SubscribersTableName:
+    Value: !GetAtt DynamoDBStack.Outputs.SubscribersTableName
+  CampaignsTableName:
+    Value: !GetAtt DynamoDBStack.Outputs.CampaignsTableName
+  KinesisStreamName:
+    Value: !GetAtt KinesisStack.Outputs.StreamName
+  ArchiveBucketName:
+    Value: !GetAtt S3Stack.Outputs.ArchiveBucketName

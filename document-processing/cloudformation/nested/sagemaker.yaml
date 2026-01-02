@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Platform - SageMaker Endpoint (Optional)'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  SageMakerRoleArn:
+    Type: String
+  ModelBucketName:
+    Type: String
+  InstanceType:
+    Type: String
+    Default: ml.t2.medium
+
+Resources:
+  # Model (placeholder - actual model requires training data)
+  DocumentClassifierModel:
+    Type: AWS::SageMaker::Model
+    Properties:
+      ModelName: !Sub '${ProjectName}-${Environment}-document-classifier'
+      ExecutionRoleArn: !Ref SageMakerRoleArn
+      PrimaryContainer:
+        Image: !Sub '683313688378.dkr.ecr.${AWS::Region}.amazonaws.com/sagemaker-xgboost:1.5-1'
+        ModelDataUrl: !Sub 's3://${ModelBucketName}/model-artifacts/model.tar.gz'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-document-classifier'
+
+  # Endpoint Configuration
+  EndpointConfig:
+    Type: AWS::SageMaker::EndpointConfig
+    Properties:
+      EndpointConfigName: !Sub '${ProjectName}-${Environment}-endpoint-config'
+      ProductionVariants:
+        - VariantName: AllTraffic
+          ModelName: !GetAtt DocumentClassifierModel.ModelName
+          InitialInstanceCount: 1
+          InstanceType: !Ref InstanceType
+          InitialVariantWeight: 1.0
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-endpoint-config'
+
+  # Endpoint
+  ClassifierEndpoint:
+    Type: AWS::SageMaker::Endpoint
+    Properties:
+      EndpointName: !Sub '${ProjectName}-${Environment}-classifier-endpoint'
+      EndpointConfigName: !GetAtt EndpointConfig.EndpointConfigName
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-classifier-endpoint'
+
+Outputs:
+  EndpointName:
+    Value: !GetAtt ClassifierEndpoint.EndpointName
+  EndpointArn:
+    Value: !Ref ClassifierEndpoint

@@ -1,0 +1,297 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Banking Platform - Lambda Functions'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  LambdaRoleArn:
+    Type: String
+  TransactionsTableName:
+    Type: String
+  IdempotencyTableName:
+    Type: String
+  DlqRecordsTableName:
+    Type: String
+  TransactionQueueUrl:
+    Type: String
+  DlqUrl:
+    Type: String
+  DlqArn:
+    Type: String
+
+Resources:
+  # API Handler Lambda
+  ApiHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-api'
+      Runtime: python3.12
+      Handler: api_handler.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 30
+      MemorySize: 256
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TRANSACTION_QUEUE_URL: !Ref TransactionQueueUrl
+          TRANSACTIONS_TABLE_NAME: !Ref TransactionsTableName
+          IDEMPOTENCY_TABLE_NAME: !Ref IdempotencyTableName
+          LOG_LEVEL: INFO
+          POWERTOOLS_SERVICE_NAME: banking-api
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import uuid
+          from datetime import datetime
+
+          sqs = boto3.client('sqs')
+          dynamodb = boto3.resource('dynamodb')
+
+          def handler(event, context):
+              """API handler for banking transactions"""
+              http_method = event.get('requestContext', {}).get('http', {}).get('method', 'GET')
+              path = event.get('rawPath', '/')
+
+              if path == '/health':
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({'status': 'healthy'})
+                  }
+
+              if path == '/transactions' and http_method == 'POST':
+                  try:
+                      body = json.loads(event.get('body', '{}'))
+                      transaction_id = str(uuid.uuid4())
+
+                      message = {
+                          'transaction_id': transaction_id,
+                          'type': body.get('type', 'TRANSFER'),
+                          'source_account': body.get('source_account'),
+                          'target_account': body.get('target_account'),
+                          'amount': body.get('amount'),
+                          'currency': body.get('currency', 'USD'),
+                          'timestamp': datetime.utcnow().isoformat(),
+                          'idempotency_key': body.get('idempotency_key', transaction_id)
+                      }
+
+                      sqs.send_message(
+                          QueueUrl=os.environ['TRANSACTION_QUEUE_URL'],
+                          MessageBody=json.dumps(message)
+                      )
+
+                      return {
+                          'statusCode': 202,
+                          'body': json.dumps({
+                              'transaction_id': transaction_id,
+                              'status': 'queued'
+                          })
+                      }
+                  except Exception as e:
+                      return {
+                          'statusCode': 500,
+                          'body': json.dumps({'error': str(e)})
+                      }
+
+              return {
+                  'statusCode': 404,
+                  'body': json.dumps({'error': 'Not found'})
+              }
+
+  ApiHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ApiHandlerFunction}'
+      RetentionInDays: 30
+
+  # Metrics Handler Lambda
+  MetricsHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-metrics'
+      Runtime: python3.12
+      Handler: metrics_handler.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 60
+      MemorySize: 256
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TRANSACTION_QUEUE_URL: !Ref TransactionQueueUrl
+          LOG_LEVEL: INFO
+          POWERTOOLS_SERVICE_NAME: banking-metrics
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          sqs = boto3.client('sqs')
+          cloudwatch = boto3.client('cloudwatch')
+          autoscaling = boto3.client('autoscaling')
+
+          def handler(event, context):
+              """Calculate and publish BacklogPerInstance metric"""
+              queue_url = os.environ['TRANSACTION_QUEUE_URL']
+
+              # Get queue attributes
+              response = sqs.get_queue_attributes(
+                  QueueUrl=queue_url,
+                  AttributeNames=['ApproximateNumberOfMessages']
+              )
+
+              queue_depth = int(response['Attributes'].get('ApproximateNumberOfMessages', 0))
+
+              # Get ASG instance count
+              asg_response = autoscaling.describe_auto_scaling_groups()
+              instance_count = 0
+
+              for asg in asg_response['AutoScalingGroups']:
+                  if 'processor' in asg['AutoScalingGroupName'].lower():
+                      instance_count = len([i for i in asg['Instances'] if i['LifecycleState'] == 'InService'])
+                      break
+
+              # Calculate backlog per instance
+              backlog_per_instance = queue_depth / max(instance_count, 1)
+
+              # Publish metric
+              cloudwatch.put_metric_data(
+                  Namespace='BankingPlatform/SQS',
+                  MetricData=[
+                      {
+                          'MetricName': 'BacklogPerInstance',
+                          'Value': backlog_per_instance,
+                          'Unit': 'Count',
+                          'Dimensions': [
+                              {'Name': 'QueueName', 'Value': 'transaction-queue'}
+                          ]
+                      }
+                  ]
+              )
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({
+                      'queue_depth': queue_depth,
+                      'instance_count': instance_count,
+                      'backlog_per_instance': backlog_per_instance
+                  })
+              }
+
+  MetricsHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${MetricsHandlerFunction}'
+      RetentionInDays: 30
+
+  # DLQ Handler Lambda
+  DlqHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-dlq-processor'
+      Runtime: python3.12
+      Handler: dlq_handler.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 60
+      MemorySize: 256
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          DLQ_TABLE_NAME: !Ref DlqRecordsTableName
+          LOG_LEVEL: INFO
+          POWERTOOLS_SERVICE_NAME: banking-dlq
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime
+
+          dynamodb = boto3.resource('dynamodb')
+
+          def handler(event, context):
+              """Process messages from DLQ and store for analysis"""
+              table = dynamodb.Table(os.environ['DLQ_TABLE_NAME'])
+
+              failed_records = []
+
+              for record in event.get('Records', []):
+                  try:
+                      message_id = record['messageId']
+                      body = json.loads(record['body'])
+
+                      # Store failed message for analysis
+                      table.put_item(
+                          Item={
+                              'message_id': message_id,
+                              'body': body,
+                              'receive_count': record.get('attributes', {}).get('ApproximateReceiveCount', '0'),
+                              'first_received': record.get('attributes', {}).get('ApproximateFirstReceiveTimestamp'),
+                              'recorded_at': datetime.utcnow().isoformat(),
+                              'ttl': int(datetime.utcnow().timestamp()) + (30 * 24 * 60 * 60)
+                          }
+                      )
+                  except Exception as e:
+                      failed_records.append({
+                          'itemIdentifier': record['messageId']
+                      })
+
+              return {
+                  'batchItemFailures': failed_records
+              }
+
+  DlqHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DlqHandlerFunction}'
+      RetentionInDays: 30
+
+  # DLQ Event Source Mapping
+  DlqEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !Ref DlqArn
+      FunctionName: !Ref DlqHandlerFunction
+      BatchSize: 10
+      Enabled: true
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  # EventBridge Rule for Metrics Collection
+  MetricsScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-metrics-schedule'
+      Description: Trigger metrics collection every minute
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Id: MetricsLambda
+          Arn: !GetAtt MetricsHandlerFunction.Arn
+
+  MetricsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MetricsHandlerFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt MetricsScheduleRule.Arn
+
+Outputs:
+  ApiHandlerArn:
+    Value: !GetAtt ApiHandlerFunction.Arn
+  ApiHandlerName:
+    Value: !Ref ApiHandlerFunction
+  MetricsHandlerArn:
+    Value: !GetAtt MetricsHandlerFunction.Arn
+  DlqHandlerArn:
+    Value: !GetAtt DlqHandlerFunction.Arn

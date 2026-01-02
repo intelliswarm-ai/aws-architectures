@@ -1,0 +1,260 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Hybrid Cloud Platform - Main CloudFormation Stack
+  Spring Boot application on Elastic Beanstalk with VPN connectivity to on-premises Oracle database
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+
+  ProjectName:
+    Type: String
+    Default: hybrid-cloud
+    Description: Project name for resource naming
+
+  VPCCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for VPC
+
+  OnPremisesCidr:
+    Type: String
+    Default: 192.168.0.0/16
+    Description: CIDR block for on-premises network
+
+  CustomerGatewayIP:
+    Type: String
+    Default: ''
+    Description: Customer gateway IP address for VPN (leave empty to skip VPN)
+
+  CustomerGatewayBgpAsn:
+    Type: Number
+    Default: 65000
+    Description: BGP ASN for customer gateway
+
+  OracleHost:
+    Type: String
+    Default: oracle.onprem.local
+    Description: On-premises Oracle database hostname
+
+  OraclePort:
+    Type: Number
+    Default: 1521
+    Description: Oracle database port
+
+  OracleServiceName:
+    Type: String
+    Default: ORCL
+    Description: Oracle service name
+
+  JavaVersion:
+    Type: String
+    Default: '17'
+    AllowedValues: ['11', '17', '21']
+    Description: Java version for Elastic Beanstalk
+
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.small, t3.medium, t3.large, t3.xlarge, m5.large, m5.xlarge]
+    Description: EC2 instance type for Elastic Beanstalk
+
+  MinInstances:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 10
+    Description: Minimum number of instances
+
+  MaxInstances:
+    Type: Number
+    Default: 6
+    MinValue: 2
+    MaxValue: 20
+    Description: Maximum number of instances
+
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: ACM certificate ARN for HTTPS (leave empty for HTTP only)
+
+  NotificationEmail:
+    Type: String
+    Default: ''
+    Description: Email for CloudWatch alarms
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Configuration
+        Parameters:
+          - Environment
+          - ProjectName
+      - Label:
+          default: Network Configuration
+        Parameters:
+          - VPCCidr
+          - OnPremisesCidr
+          - CustomerGatewayIP
+          - CustomerGatewayBgpAsn
+      - Label:
+          default: Database Configuration
+        Parameters:
+          - OracleHost
+          - OraclePort
+          - OracleServiceName
+      - Label:
+          default: Application Configuration
+        Parameters:
+          - JavaVersion
+          - InstanceType
+          - MinInstances
+          - MaxInstances
+          - CertificateArn
+      - Label:
+          default: Monitoring
+        Parameters:
+          - NotificationEmail
+
+Conditions:
+  CreateVPN: !Not [!Equals [!Ref CustomerGatewayIP, '']]
+  HasCertificate: !Not [!Equals [!Ref CertificateArn, '']]
+
+Resources:
+  # VPC Stack
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/vpc.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        VPCCidr: !Ref VPCCidr
+        OnPremisesCidr: !Ref OnPremisesCidr
+        CustomerGatewayIP: !Ref CustomerGatewayIP
+        CustomerGatewayBgpAsn: !Ref CustomerGatewayBgpAsn
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-vpc-stack'
+
+  # Security Stack
+  SecurityStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/security.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        VPCId: !GetAtt VPCStack.Outputs.VPCId
+        VPCCidr: !Ref VPCCidr
+        OnPremisesCidr: !Ref OnPremisesCidr
+        OraclePort: !Ref OraclePort
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-security-stack'
+
+  # S3 Stack
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/s3.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-s3-stack'
+
+  # IAM Stack
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/iam.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        ReportsBucketArn: !GetAtt S3Stack.Outputs.ReportsBucketArn
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-iam-stack'
+
+  # Elastic Beanstalk Stack
+  ElasticBeanstalkStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - VPCStack
+      - SecurityStack
+      - IAMStack
+    Properties:
+      TemplateURL: ./nested/elasticbeanstalk.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        VPCId: !GetAtt VPCStack.Outputs.VPCId
+        PublicSubnet1: !GetAtt VPCStack.Outputs.PublicSubnet1
+        PublicSubnet2: !GetAtt VPCStack.Outputs.PublicSubnet2
+        PrivateSubnet1: !GetAtt VPCStack.Outputs.PrivateSubnet1
+        PrivateSubnet2: !GetAtt VPCStack.Outputs.PrivateSubnet2
+        ALBSecurityGroup: !GetAtt SecurityStack.Outputs.ALBSecurityGroup
+        EC2SecurityGroup: !GetAtt SecurityStack.Outputs.EC2SecurityGroup
+        InstanceProfileArn: !GetAtt IAMStack.Outputs.InstanceProfileArn
+        ServiceRoleArn: !GetAtt IAMStack.Outputs.ServiceRoleArn
+        JavaVersion: !Ref JavaVersion
+        InstanceType: !Ref InstanceType
+        MinInstances: !Ref MinInstances
+        MaxInstances: !Ref MaxInstances
+        CertificateArn: !Ref CertificateArn
+        OracleHost: !Ref OracleHost
+        OraclePort: !Ref OraclePort
+        OracleServiceName: !Ref OracleServiceName
+        ReportsBucketName: !GetAtt S3Stack.Outputs.ReportsBucketName
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-eb-stack'
+
+  # CloudWatch Stack
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - ElasticBeanstalkStack
+    Properties:
+      TemplateURL: ./nested/cloudwatch.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !GetAtt ElasticBeanstalkStack.Outputs.EnvironmentName
+        LoadBalancerArn: !GetAtt ElasticBeanstalkStack.Outputs.LoadBalancerArn
+        NotificationEmail: !Ref NotificationEmail
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-cloudwatch-stack'
+
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !GetAtt VPCStack.Outputs.VPCId
+
+  ApplicationURL:
+    Description: Elastic Beanstalk application URL
+    Value: !GetAtt ElasticBeanstalkStack.Outputs.EndpointURL
+
+  EnvironmentName:
+    Description: Elastic Beanstalk environment name
+    Value: !GetAtt ElasticBeanstalkStack.Outputs.EnvironmentName
+
+  ReportsBucketName:
+    Description: S3 bucket for reports
+    Value: !GetAtt S3Stack.Outputs.ReportsBucketName
+
+  VPNId:
+    Description: VPN Connection ID
+    Value: !GetAtt VPCStack.Outputs.VPNConnectionId
+    Condition: CreateVPN
+
+  DashboardURL:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${CloudWatchStack.Outputs.DashboardName}'

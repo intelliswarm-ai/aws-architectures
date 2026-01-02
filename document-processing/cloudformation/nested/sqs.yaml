@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Platform - SQS Queues'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  VisibilityTimeout:
+    Type: Number
+    Default: 300
+  MessageRetention:
+    Type: Number
+    Default: 1209600
+
+Resources:
+  # Dead Letter Queue
+  ProcessingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-processing-dlq'
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-processing-dlq'
+
+  # Processing Queue
+  ProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-processing'
+      VisibilityTimeout: !Ref VisibilityTimeout
+      MessageRetentionPeriod: !Ref MessageRetention
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProcessingDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-processing'
+
+Outputs:
+  ProcessingQueueArn:
+    Value: !GetAtt ProcessingQueue.Arn
+  ProcessingQueueUrl:
+    Value: !Ref ProcessingQueue
+  ProcessingQueueName:
+    Value: !GetAtt ProcessingQueue.QueueName
+  DlqArn:
+    Value: !GetAtt ProcessingDLQ.Arn
+  DlqUrl:
+    Value: !Ref ProcessingDLQ

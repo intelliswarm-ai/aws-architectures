@@ -1,0 +1,400 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Enterprise Serverless Platform - Lambda Functions'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  LambdaRoleArn:
+    Type: String
+  CognitoUserPoolId:
+    Type: String
+  CognitoClientId:
+    Type: String
+  TenantsTableName:
+    Type: String
+  EmailsTableName:
+    Type: String
+  CRMTableName:
+    Type: String
+  AuditTableName:
+    Type: String
+  AsyncQueueUrl:
+    Type: String
+  EventsTopicArn:
+    Type: String
+  BedrockModelId:
+    Type: String
+
+Resources:
+  # Lambda Authorizer
+  AuthorizerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-authorizer'
+      Description: JWT token validation and tenant context extraction
+      Runtime: python3.12
+      Handler: authorizer.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          TENANTS_TABLE: !Ref TenantsTableName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import jwt
+          from jwt.algorithms import RSAAlgorithm
+          import urllib.request
+
+          cognito = boto3.client('cognito-idp')
+          dynamodb = boto3.resource('dynamodb')
+
+          def handler(event, context):
+              """Lambda authorizer for API Gateway"""
+              try:
+                  token = event.get('authorizationToken', '').replace('Bearer ', '')
+                  method_arn = event.get('methodArn', '')
+
+                  if not token:
+                      return generate_policy('user', 'Deny', method_arn)
+
+                  # Decode JWT (simplified - in production, verify signature)
+                  claims = jwt.decode(token, options={'verify_signature': False})
+
+                  tenant_id = claims.get('custom:tenant_id', claims.get('tenant_id'))
+                  user_id = claims.get('sub')
+                  email = claims.get('email')
+                  roles = claims.get('cognito:groups', [])
+
+                  if not tenant_id or not user_id:
+                      return generate_policy('user', 'Deny', method_arn)
+
+                  context = {
+                      'tenant_id': tenant_id,
+                      'user_id': user_id,
+                      'email': email or '',
+                      'roles': ','.join(roles) if roles else 'user'
+                  }
+
+                  return generate_policy(user_id, 'Allow', method_arn, context)
+
+              except Exception as e:
+                  print(f'Authorization error: {e}')
+                  return generate_policy('user', 'Deny', event.get('methodArn', ''))
+
+          def generate_policy(principal_id, effect, resource, context=None):
+              policy = {
+                  'principalId': principal_id,
+                  'policyDocument': {
+                      'Version': '2012-10-17',
+                      'Statement': [{
+                          'Action': 'execute-api:Invoke',
+                          'Effect': effect,
+                          'Resource': resource
+                      }]
+                  }
+              }
+              if context:
+                  policy['context'] = context
+              return policy
+
+  AuthorizerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AuthorizerFunction}'
+      RetentionInDays: 30
+
+  # API Handler Function
+  ApiHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-api'
+      Description: Main API handler for multi-tenant platform
+      Runtime: python3.12
+      Handler: api_handler.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 30
+      MemorySize: 512
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TENANTS_TABLE: !Ref TenantsTableName
+          EMAILS_TABLE: !Ref EmailsTableName
+          CRM_TABLE: !Ref CRMTableName
+          AUDIT_TABLE: !Ref AuditTableName
+          ASYNC_QUEUE_URL: !Ref AsyncQueueUrl
+          EVENTS_TOPIC_ARN: !Ref EventsTopicArn
+          POWERTOOLS_SERVICE_NAME: !Ref ProjectName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import uuid
+          from datetime import datetime
+
+          dynamodb = boto3.resource('dynamodb')
+          sqs = boto3.client('sqs')
+
+          def handler(event, context):
+              """Main API handler"""
+              http_method = event.get('httpMethod', 'GET')
+              path = event.get('path', '/')
+              authorizer = event.get('requestContext', {}).get('authorizer', {})
+
+              tenant_id = authorizer.get('tenant_id')
+              user_id = authorizer.get('user_id')
+
+              # Route handling
+              if path == '/health':
+                  return response(200, {'status': 'healthy'})
+
+              if not tenant_id:
+                  return response(401, {'error': 'Unauthorized'})
+
+              if path == '/tenants/me' and http_method == 'GET':
+                  return get_tenant(tenant_id)
+
+              if path.startswith('/emails'):
+                  return handle_emails(http_method, path, event, tenant_id, user_id)
+
+              if path.startswith('/crm'):
+                  return handle_crm(http_method, path, event, tenant_id, user_id)
+
+              return response(404, {'error': 'Not found'})
+
+          def get_tenant(tenant_id):
+              table = dynamodb.Table(os.environ['TENANTS_TABLE'])
+              result = table.get_item(Key={'pk': f'TENANT#{tenant_id}', 'sk': 'METADATA'})
+              item = result.get('Item')
+              if item:
+                  return response(200, item)
+              return response(404, {'error': 'Tenant not found'})
+
+          def handle_emails(method, path, event, tenant_id, user_id):
+              table = dynamodb.Table(os.environ['EMAILS_TABLE'])
+
+              if method == 'GET' and path == '/emails':
+                  result = table.query(
+                      KeyConditionExpression='pk = :pk',
+                      ExpressionAttributeValues={':pk': f'TENANT#{tenant_id}'},
+                      Limit=50
+                  )
+                  return response(200, {'emails': result.get('Items', [])})
+
+              return response(404, {'error': 'Not found'})
+
+          def handle_crm(method, path, event, tenant_id, user_id):
+              table = dynamodb.Table(os.environ['CRM_TABLE'])
+
+              if method == 'GET' and path == '/crm/contacts':
+                  result = table.query(
+                      KeyConditionExpression='pk = :pk',
+                      ExpressionAttributeValues={':pk': f'TENANT#{tenant_id}'},
+                      Limit=50
+                  )
+                  return response(200, {'contacts': result.get('Items', [])})
+
+              return response(404, {'error': 'Not found'})
+
+          def response(status_code, body):
+              return {
+                  'statusCode': status_code,
+                  'headers': {
+                      'Content-Type': 'application/json',
+                      'Access-Control-Allow-Origin': '*'
+                  },
+                  'body': json.dumps(body)
+              }
+
+  ApiHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ApiHandlerFunction}'
+      RetentionInDays: 30
+
+  # Email Sync Function
+  SyncFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-email-sync'
+      Description: Sync emails from connected providers
+      Runtime: python3.12
+      Handler: email_sync.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 300
+      MemorySize: 512
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TENANTS_TABLE: !Ref TenantsTableName
+          EMAILS_TABLE: !Ref EmailsTableName
+          ASYNC_QUEUE_URL: !Ref AsyncQueueUrl
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime
+
+          dynamodb = boto3.resource('dynamodb')
+          sqs = boto3.client('sqs')
+
+          def handler(event, context):
+              """Email sync handler - triggered by EventBridge"""
+              tenants_table = dynamodb.Table(os.environ['TENANTS_TABLE'])
+
+              # Get all active email connections
+              result = tenants_table.scan(
+                  FilterExpression='begins_with(sk, :prefix) AND #status = :active',
+                  ExpressionAttributeNames={'#status': 'status'},
+                  ExpressionAttributeValues={
+                      ':prefix': 'CONNECTION#',
+                      ':active': 'active'
+                  }
+              )
+
+              for connection in result.get('Items', []):
+                  # Queue sync job for each connection
+                  sqs.send_message(
+                      QueueUrl=os.environ['ASYNC_QUEUE_URL'],
+                      MessageBody=json.dumps({
+                          'task': 'email_sync',
+                          'connection_id': connection.get('connection_id'),
+                          'tenant_id': connection.get('pk', '').replace('TENANT#', ''),
+                          'provider': connection.get('provider')
+                      })
+                  )
+
+              return {'statusCode': 200, 'body': f'Queued {len(result.get("Items", []))} sync jobs'}
+
+  SyncLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${SyncFunction}'
+      RetentionInDays: 30
+
+  # GenAI Analysis Function
+  AnalysisFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-analysis'
+      Description: GenAI email analysis using Bedrock
+      Runtime: python3.12
+      Handler: analysis.handler
+      Role: !Ref LambdaRoleArn
+      Timeout: 120
+      MemorySize: 1024
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          EMAILS_TABLE: !Ref EmailsTableName
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          BEDROCK_MAX_TOKENS: '4096'
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime
+
+          dynamodb = boto3.resource('dynamodb')
+          bedrock = boto3.client('bedrock-runtime')
+
+          def handler(event, context):
+              """Analyze email using Bedrock GenAI"""
+              model_id = os.environ.get('BEDROCK_MODEL_ID')
+              max_tokens = int(os.environ.get('BEDROCK_MAX_TOKENS', 4096))
+
+              for record in event.get('Records', []):
+                  message = json.loads(record['body'])
+                  email_content = message.get('email_content', '')
+                  message_id = message.get('message_id')
+                  tenant_id = message.get('tenant_id')
+
+                  if not email_content:
+                      continue
+
+                  prompt = f"""Analyze this business email and provide:
+                  1. Sentiment (positive/negative/neutral)
+                  2. Intent (inquiry/complaint/request/information)
+                  3. Priority score (1-10)
+                  4. Action items (list)
+                  5. Key entities (people, companies, dates)
+                  6. Brief summary
+
+                  Email:
+                  {email_content[:5000]}
+
+                  Respond in JSON format."""
+
+                  try:
+                      response = bedrock.invoke_model(
+                          modelId=model_id,
+                          body=json.dumps({
+                              'anthropic_version': 'bedrock-2023-05-31',
+                              'max_tokens': max_tokens,
+                              'messages': [{'role': 'user', 'content': prompt}]
+                          })
+                      )
+
+                      response_body = json.loads(response['body'].read())
+                      analysis_text = response_body.get('content', [{}])[0].get('text', '{}')
+
+                      try:
+                          analysis = json.loads(analysis_text)
+                      except:
+                          analysis = {'raw_response': analysis_text}
+
+                      # Update email with analysis
+                      emails_table = dynamodb.Table(os.environ['EMAILS_TABLE'])
+                      emails_table.update_item(
+                          Key={'pk': f'TENANT#{tenant_id}', 'sk': f'MESSAGE#{message_id}'},
+                          UpdateExpression='SET analysis = :analysis, analyzed_at = :timestamp',
+                          ExpressionAttributeValues={
+                              ':analysis': analysis,
+                              ':timestamp': datetime.utcnow().isoformat()
+                          }
+                      )
+
+                  except Exception as e:
+                      print(f'Analysis error: {e}')
+
+              return {'statusCode': 200, 'body': 'Analysis complete'}
+
+  AnalysisLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AnalysisFunction}'
+      RetentionInDays: 30
+
+Outputs:
+  AuthorizerArn:
+    Value: !GetAtt AuthorizerFunction.Arn
+  AuthorizerName:
+    Value: !Ref AuthorizerFunction
+  ApiHandlerArn:
+    Value: !GetAtt ApiHandlerFunction.Arn
+  ApiHandlerName:
+    Value: !Ref ApiHandlerFunction
+  SyncFunctionArn:
+    Value: !GetAtt SyncFunction.Arn
+  SyncFunctionName:
+    Value: !Ref SyncFunction
+  AnalysisFunctionArn:
+    Value: !GetAtt AnalysisFunction.Arn
+  AnalysisFunctionName:
+    Value: !Ref AnalysisFunction

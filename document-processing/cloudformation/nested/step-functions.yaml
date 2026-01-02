@@ -1,0 +1,305 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Platform - Step Functions Workflow'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  WorkflowLambdaArn:
+    Type: String
+  ExtractionLambdaArn:
+    Type: String
+  TranscriptionLambdaArn:
+    Type: String
+  AnalysisLambdaArn:
+    Type: String
+  InferenceLambdaArn:
+    Type: String
+  BedrockLambdaArn:
+    Type: String
+  SuccessTopicArn:
+    Type: String
+  FailureTopicArn:
+    Type: String
+
+Resources:
+  WorkflowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/vendedlogs/states/${ProjectName}-${Environment}-workflow'
+      RetentionInDays: 30
+
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-sfn-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaInvoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !Ref WorkflowLambdaArn
+                  - !Ref ExtractionLambdaArn
+                  - !Ref TranscriptionLambdaArn
+                  - !Ref AnalysisLambdaArn
+                  - !Ref InferenceLambdaArn
+                  - !Ref BedrockLambdaArn
+        - PolicyName: SNSPublish
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sns:Publish
+                Resource:
+                  - !Ref SuccessTopicArn
+                  - !Ref FailureTopicArn
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogDelivery
+                  - logs:GetLogDelivery
+                  - logs:UpdateLogDelivery
+                  - logs:DeleteLogDelivery
+                  - logs:ListLogDeliveries
+                  - logs:PutResourcePolicy
+                  - logs:DescribeResourcePolicies
+                  - logs:DescribeLogGroups
+                Resource: '*'
+
+  DocumentProcessingWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-${Environment}-document-workflow'
+      RoleArn: !GetAtt StepFunctionsRole.Arn
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt WorkflowLogGroup.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Intelligent Document Processing Workflow",
+          "StartAt": "ValidateDocument",
+          "States": {
+            "ValidateDocument": {
+              "Type": "Task",
+              "Resource": "${WorkflowLambdaArn}",
+              "Parameters": {
+                "action": "validate",
+                "document_id.$": "$.document_id",
+                "document_type.$": "$.document_type",
+                "bucket.$": "$.bucket",
+                "key.$": "$.key"
+              },
+              "ResultPath": "$",
+              "Next": "CheckValidation",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "CheckValidation": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.valid",
+                  "BooleanEquals": false,
+                  "Next": "NotifyFailure"
+                }
+              ],
+              "Default": "RouteByType"
+            },
+            "RouteByType": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.document_type",
+                  "StringEquals": "PDF",
+                  "Next": "ExtractText"
+                },
+                {
+                  "Variable": "$.document_type",
+                  "StringEquals": "IMAGE",
+                  "Next": "ExtractText"
+                },
+                {
+                  "Variable": "$.document_type",
+                  "StringEquals": "AUDIO",
+                  "Next": "TranscribeAudio"
+                },
+                {
+                  "Variable": "$.document_type",
+                  "StringEquals": "TEXT",
+                  "Next": "AnalyzeContent"
+                }
+              ],
+              "Default": "NotifyFailure"
+            },
+            "ExtractText": {
+              "Type": "Task",
+              "Resource": "${ExtractionLambdaArn}",
+              "ResultPath": "$",
+              "Next": "AnalyzeContent",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "IntervalSeconds": 30,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "TranscribeAudio": {
+              "Type": "Task",
+              "Resource": "${TranscriptionLambdaArn}",
+              "ResultPath": "$",
+              "Next": "AnalyzeContent",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "IntervalSeconds": 30,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "AnalyzeContent": {
+              "Type": "Task",
+              "Resource": "${AnalysisLambdaArn}",
+              "ResultPath": "$",
+              "Next": "ClassifyDocument",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "IntervalSeconds": 10,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "ClassifyDocument": {
+              "Type": "Task",
+              "Resource": "${InferenceLambdaArn}",
+              "ResultPath": "$",
+              "Next": "GenerateInsights",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "IntervalSeconds": 5,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "GenerateInsights": {
+              "Type": "Task",
+              "Resource": "${BedrockLambdaArn}",
+              "ResultPath": "$",
+              "Next": "FinalizeProcessing",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "IntervalSeconds": 10,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "FinalizeProcessing"
+                }
+              ]
+            },
+            "FinalizeProcessing": {
+              "Type": "Task",
+              "Resource": "${WorkflowLambdaArn}",
+              "Parameters": {
+                "action": "finalize",
+                "document_id.$": "$.document_id",
+                "extraction.$": "$.extraction",
+                "analysis.$": "$.analysis",
+                "classification.$": "$.classification",
+                "generation.$": "$.generation"
+              },
+              "ResultPath": "$",
+              "Next": "NotifySuccess",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ]
+            },
+            "NotifySuccess": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sns:publish",
+              "Parameters": {
+                "TopicArn": "${SuccessTopicArn}",
+                "Message.$": "States.Format('Document {} processed successfully', $.document_id)",
+                "Subject": "Document Processing Complete"
+              },
+              "End": true
+            },
+            "NotifyFailure": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sns:publish",
+              "Parameters": {
+                "TopicArn": "${FailureTopicArn}",
+                "Message.$": "States.Format('Document processing failed: {}', $.error)",
+                "Subject": "Document Processing Failed"
+              },
+              "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-document-workflow'
+
+Outputs:
+  WorkflowArn:
+    Value: !Ref DocumentProcessingWorkflow
+  WorkflowName:
+    Value: !GetAtt DocumentProcessingWorkflow.Name

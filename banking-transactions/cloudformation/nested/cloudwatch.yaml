@@ -1,0 +1,255 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Banking Platform - CloudWatch Monitoring'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  TransactionQueueName:
+    Type: String
+  DlqName:
+    Type: String
+  AlarmEmail:
+    Type: String
+    Default: ''
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref AlarmEmail, '']]
+
+Resources:
+  # SNS Topic for Alarms
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasEmail
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-alarms'
+
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  # Log Groups
+  ProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/banking/${ProjectName}-${Environment}/processor'
+      RetentionInDays: 30
+
+  # Queue Depth Alarm
+  QueueDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-queue-depth-high'
+      AlarmDescription: Transaction queue depth is too high
+      MetricName: ApproximateNumberOfMessages
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !Ref TransactionQueueName
+      AlarmActions:
+        - !If [HasEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # DLQ Depth Alarm
+  DlqDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-dlq-depth-high'
+      AlarmDescription: Dead letter queue has messages
+      MetricName: ApproximateNumberOfMessages
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !Ref DlqName
+      AlarmActions:
+        - !If [HasEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # Oldest Message Age Alarm
+  OldestMessageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-oldest-message-age'
+      AlarmDescription: Messages are waiting too long in queue
+      MetricName: ApproximateAgeOfOldestMessage
+      Namespace: AWS/SQS
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 300
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !Ref TransactionQueueName
+      AlarmActions:
+        - !If [HasEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # CloudWatch Dashboard
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-${Environment}-dashboard'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Queue Depth",
+                "metrics": [
+                  ["AWS/SQS", "ApproximateNumberOfMessages", "QueueName", "${TransactionQueueName}"],
+                  [".", "ApproximateNumberOfMessagesNotVisible", ".", "."]
+                ],
+                "period": 60,
+                "stat": "Average",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Dead Letter Queue",
+                "metrics": [
+                  ["AWS/SQS", "ApproximateNumberOfMessages", "QueueName", "${DlqName}"]
+                ],
+                "period": 60,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Message Age",
+                "metrics": [
+                  ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", "${TransactionQueueName}"]
+                ],
+                "period": 60,
+                "stat": "Maximum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Backlog Per Instance",
+                "metrics": [
+                  ["BankingPlatform/SQS", "BacklogPerInstance", "QueueName", "transaction-queue"]
+                ],
+                "period": 60,
+                "stat": "Average",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 12,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Auto Scaling Group - Instance Count",
+                "metrics": [
+                  ["AWS/AutoScaling", "GroupInServiceInstances", "AutoScalingGroupName", "${ProjectName}-${Environment}-processor-asg"],
+                  [".", "GroupDesiredCapacity", ".", "."],
+                  [".", "GroupMinSize", ".", "."],
+                  [".", "GroupMaxSize", ".", "."]
+                ],
+                "period": 60,
+                "stat": "Average",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 12,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Invocations",
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${ProjectName}-${Environment}-api"],
+                  [".", ".", ".", "${ProjectName}-${Environment}-metrics"],
+                  [".", ".", ".", "${ProjectName}-${Environment}-dlq-processor"]
+                ],
+                "period": 60,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 18,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Errors",
+                "metrics": [
+                  ["AWS/Lambda", "Errors", "FunctionName", "${ProjectName}-${Environment}-api"],
+                  [".", ".", ".", "${ProjectName}-${Environment}-metrics"],
+                  [".", ".", ".", "${ProjectName}-${Environment}-dlq-processor"]
+                ],
+                "period": 60,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 18,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "API Gateway Requests",
+                "metrics": [
+                  ["AWS/ApiGateway", "Count", "ApiId", "${ProjectName}-${Environment}-api"]
+                ],
+                "period": 60,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  ProcessorLogGroupName:
+    Value: !Ref ProcessorLogGroup
+  ProcessorLogGroupArn:
+    Value: !GetAtt ProcessorLogGroup.Arn
+  DashboardName:
+    Value: !Ref Dashboard
+  AlarmTopicArn:
+    Value: !If [HasEmail, !Ref AlarmTopic, '']

@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SMS Marketing - DynamoDB Tables'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+
+Resources:
+  SubscribersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-${Environment}-subscribers'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: phone_number
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: phone_number
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: status-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+
+  CampaignsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-${Environment}-campaigns'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: campaign_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: campaign_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: created-index
+          KeySchema:
+            - AttributeName: created_at
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+
+  ResponsesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-${Environment}-responses'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: response_id
+          AttributeType: S
+        - AttributeName: campaign_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: response_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: campaign-index
+          KeySchema:
+            - AttributeName: campaign_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+Outputs:
+  SubscribersTableName:
+    Value: !Ref SubscribersTable
+  SubscribersTableArn:
+    Value: !GetAtt SubscribersTable.Arn
+  CampaignsTableName:
+    Value: !Ref CampaignsTable
+  CampaignsTableArn:
+    Value: !GetAtt CampaignsTable.Arn
+  ResponsesTableName:
+    Value: !Ref ResponsesTable
+  ResponsesTableArn:
+    Value: !GetAtt ResponsesTable.Arn

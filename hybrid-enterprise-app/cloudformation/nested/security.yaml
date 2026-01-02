@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Hybrid Cloud Platform - Security Groups'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  VPCId:
+    Type: String
+  VPCCidr:
+    Type: String
+  OnPremisesCidr:
+    Type: String
+  OraclePort:
+    Type: Number
+
+Resources:
+  # ALB Security Group
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-${Environment}-alb-sg'
+      GroupDescription: Security group for Application Load Balancer
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP from internet
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS from internet
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-alb-sg'
+
+  # EC2 Security Group (Elastic Beanstalk instances)
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-${Environment}-ec2-sg'
+      GroupDescription: Security group for Elastic Beanstalk EC2 instances
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        # Traffic from ALB
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: HTTP from ALB
+        # SSH from VPC (for debugging via bastion)
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref VPCCidr
+          Description: SSH from VPC
+      SecurityGroupEgress:
+        # HTTPS outbound (for AWS API calls)
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS outbound
+        # Oracle database access to on-premises
+        - IpProtocol: tcp
+          FromPort: !Ref OraclePort
+          ToPort: !Ref OraclePort
+          CidrIp: !Ref OnPremisesCidr
+          Description: Oracle on-premises
+        # HTTP outbound (for package downloads)
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP outbound
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-ec2-sg'
+
+  # Allow inter-instance communication
+  EC2SecurityGroupIngressSelf:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref EC2SecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref EC2SecurityGroup
+      Description: All traffic from same security group
+
+Outputs:
+  ALBSecurityGroup:
+    Value: !Ref ALBSecurityGroup
+  EC2SecurityGroup:
+    Value: !Ref EC2SecurityGroup

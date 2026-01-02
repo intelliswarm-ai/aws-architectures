@@ -1,0 +1,159 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Task Automation System with Step Functions - Main Stack'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+  ProjectName:
+    Type: String
+    Default: task-automation
+
+  LambdaMemorySize:
+    Type: Number
+    Default: 512
+    AllowedValues:
+      - 256
+      - 512
+      - 1024
+      - 2048
+
+  LambdaTimeout:
+    Type: Number
+    Default: 60
+
+  AlarmEmail:
+    Type: String
+    Default: ''
+
+Resources:
+  # DynamoDB Tables
+  DynamoDBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/dynamodb.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  # SQS Queues
+  SQSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/sqs.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+
+  # SNS Topics
+  SNSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/sns.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        AlarmEmail: !Ref AlarmEmail
+
+  # IAM Roles
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - DynamoDBStack
+      - SQSStack
+      - SNSStack
+    Properties:
+      TemplateURL: ./nested/iam.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        TasksTableArn: !GetAtt DynamoDBStack.Outputs.TasksTableArn
+        TaskQueueArn: !GetAtt SQSStack.Outputs.TaskQueueArn
+        DLQArn: !GetAtt SQSStack.Outputs.DLQArn
+        NotificationTopicArn: !GetAtt SNSStack.Outputs.NotificationTopicArn
+
+  # Lambda Functions
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+    Properties:
+      TemplateURL: ./nested/lambda.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        MemorySize: !Ref LambdaMemorySize
+        Timeout: !Ref LambdaTimeout
+        LambdaRoleArn: !GetAtt IAMStack.Outputs.LambdaRoleArn
+        TasksTableName: !GetAtt DynamoDBStack.Outputs.TasksTableName
+        TaskQueueUrl: !GetAtt SQSStack.Outputs.TaskQueueUrl
+        NotificationTopicArn: !GetAtt SNSStack.Outputs.NotificationTopicArn
+
+  # Step Functions
+  StepFunctionsStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+      - IAMStack
+    Properties:
+      TemplateURL: ./nested/step-functions.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        StepFunctionsRoleArn: !GetAtt IAMStack.Outputs.StepFunctionsRoleArn
+        TaskGeneratorArn: !GetAtt LambdaStack.Outputs.TaskGeneratorArn
+        SQSProcessorArn: !GetAtt LambdaStack.Outputs.SQSProcessorArn
+        TaskExecutorArn: !GetAtt LambdaStack.Outputs.TaskExecutorArn
+        NotificationHandlerArn: !GetAtt LambdaStack.Outputs.NotificationHandlerArn
+
+  # EventBridge
+  EventBridgeStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - StepFunctionsStack
+    Properties:
+      TemplateURL: ./nested/eventbridge.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        StateMachineArn: !GetAtt StepFunctionsStack.Outputs.StateMachineArn
+
+  # CloudWatch
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+      - StepFunctionsStack
+    Properties:
+      TemplateURL: ./nested/cloudwatch.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        TaskGeneratorName: !GetAtt LambdaStack.Outputs.TaskGeneratorName
+        SQSProcessorName: !GetAtt LambdaStack.Outputs.SQSProcessorName
+        TaskExecutorName: !GetAtt LambdaStack.Outputs.TaskExecutorName
+        NotificationHandlerName: !GetAtt LambdaStack.Outputs.NotificationHandlerName
+        StateMachineName: !GetAtt StepFunctionsStack.Outputs.StateMachineName
+        AlarmEmail: !Ref AlarmEmail
+
+Outputs:
+  TasksTableName:
+    Description: DynamoDB tasks table
+    Value: !GetAtt DynamoDBStack.Outputs.TasksTableName
+
+  TaskQueueUrl:
+    Description: SQS task queue URL
+    Value: !GetAtt SQSStack.Outputs.TaskQueueUrl
+
+  StateMachineArn:
+    Description: Step Functions state machine ARN
+    Value: !GetAtt StepFunctionsStack.Outputs.StateMachineArn
+
+  TaskGeneratorFunction:
+    Description: Task generator Lambda
+    Value: !GetAtt LambdaStack.Outputs.TaskGeneratorName

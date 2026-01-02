@@ -1,0 +1,177 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Enterprise Serverless Platform - CloudWatch Monitoring'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  ApiHandlerName:
+    Type: String
+  SyncFunctionName:
+    Type: String
+  AnalysisFunctionName:
+    Type: String
+  NotificationEmail:
+    Type: String
+    Default: ''
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref NotificationEmail, '']]
+
+Resources:
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasEmail
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-alarms'
+
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  # API Error Alarm
+  ApiErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-api-errors'
+      AlarmDescription: API Lambda errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiHandlerName
+      AlarmActions:
+        - !If [HasEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # Analysis Errors Alarm
+  AnalysisErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-analysis-errors'
+      AlarmDescription: GenAI analysis errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AnalysisFunctionName
+      AlarmActions:
+        - !If [HasEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # Dashboard
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-${Environment}-dashboard'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "API Invocations & Errors",
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${ApiHandlerName}"],
+                  [".", "Errors", ".", "."]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "API Duration",
+                "metrics": [
+                  ["AWS/Lambda", "Duration", "FunctionName", "${ApiHandlerName}"]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Email Sync Function",
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${SyncFunctionName}"],
+                  [".", "Errors", ".", "."],
+                  [".", "Duration", ".", "."]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "GenAI Analysis Function",
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${AnalysisFunctionName}"],
+                  [".", "Errors", ".", "."],
+                  [".", "Duration", ".", "."]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 12,
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Concurrent Executions",
+                "metrics": [
+                  ["AWS/Lambda", "ConcurrentExecutions", "FunctionName", "${ApiHandlerName}"],
+                  [".", ".", ".", "${SyncFunctionName}"],
+                  [".", ".", ".", "${AnalysisFunctionName}"]
+                ],
+                "period": 60,
+                "stat": "Maximum",
+                "region": "${AWS::Region}"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  DashboardName:
+    Value: !Ref Dashboard
+  AlarmTopicArn:
+    Value: !If [HasEmail, !Ref AlarmTopic, '']

@@ -1,0 +1,207 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Platform - CloudWatch Monitoring'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  IngestionFunctionName:
+    Type: String
+  ExtractionFunctionName:
+    Type: String
+  AnalysisFunctionName:
+    Type: String
+  InferenceFunctionName:
+    Type: String
+  BedrockFunctionName:
+    Type: String
+  WorkflowName:
+    Type: String
+  NotificationEmail:
+    Type: String
+    Default: ''
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref NotificationEmail, '']]
+
+Resources:
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasEmail
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-alarms'
+
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  # Workflow Execution Alarm
+  WorkflowFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-workflow-failures'
+      AlarmDescription: Step Functions workflow execution failures
+      MetricName: ExecutionsFailed
+      Namespace: AWS/States
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: StateMachineArn
+          Value: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${WorkflowName}'
+      AlarmActions:
+        - !If [HasEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # Lambda Error Alarms
+  IngestionErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-ingestion-errors'
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref IngestionFunctionName
+      AlarmActions:
+        - !If [HasEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # Dashboard
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-${Environment}-dashboard'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Step Functions Executions",
+                "metrics": [
+                  ["AWS/States", "ExecutionsStarted", "StateMachineArn", "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${WorkflowName}"],
+                  [".", "ExecutionsSucceeded", ".", "."],
+                  [".", "ExecutionsFailed", ".", "."]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Workflow Duration",
+                "metrics": [
+                  ["AWS/States", "ExecutionTime", "StateMachineArn", "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${WorkflowName}"]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Invocations",
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${IngestionFunctionName}"],
+                  [".", ".", ".", "${ExtractionFunctionName}"],
+                  [".", ".", ".", "${AnalysisFunctionName}"],
+                  [".", ".", ".", "${InferenceFunctionName}"],
+                  [".", ".", ".", "${BedrockFunctionName}"]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Errors",
+                "metrics": [
+                  ["AWS/Lambda", "Errors", "FunctionName", "${IngestionFunctionName}"],
+                  [".", ".", ".", "${ExtractionFunctionName}"],
+                  [".", ".", ".", "${AnalysisFunctionName}"],
+                  [".", ".", ".", "${InferenceFunctionName}"],
+                  [".", ".", ".", "${BedrockFunctionName}"]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 12,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Duration",
+                "metrics": [
+                  ["AWS/Lambda", "Duration", "FunctionName", "${IngestionFunctionName}"],
+                  [".", ".", ".", "${ExtractionFunctionName}"],
+                  [".", ".", ".", "${AnalysisFunctionName}"],
+                  [".", ".", ".", "${InferenceFunctionName}"],
+                  [".", ".", ".", "${BedrockFunctionName}"]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 12,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Concurrent Executions",
+                "metrics": [
+                  ["AWS/Lambda", "ConcurrentExecutions", "FunctionName", "${IngestionFunctionName}"],
+                  [".", ".", ".", "${ExtractionFunctionName}"],
+                  [".", ".", ".", "${BedrockFunctionName}"]
+                ],
+                "period": 60,
+                "stat": "Maximum",
+                "region": "${AWS::Region}"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  DashboardName:
+    Value: !Ref Dashboard
+  AlarmTopicArn:
+    Value: !If [HasEmail, !Ref AlarmTopic, '']

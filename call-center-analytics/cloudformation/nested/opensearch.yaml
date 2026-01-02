@@ -1,0 +1,143 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Call Sentiment Analysis - OpenSearch Domain'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  InstanceType:
+    Type: String
+    Default: t3.small.search
+  InstanceCount:
+    Type: Number
+    Default: 2
+  VolumeSize:
+    Type: Number
+    Default: 100
+  MasterUserName:
+    Type: String
+  MasterUserPassword:
+    Type: String
+    NoEcho: true
+
+Resources:
+  OpenSearchDomain:
+    Type: AWS::OpenSearchService::Domain
+    Properties:
+      DomainName: !Sub '${ProjectName}-${Environment}'
+      EngineVersion: OpenSearch_2.11
+      ClusterConfig:
+        InstanceType: !Ref InstanceType
+        InstanceCount: !Ref InstanceCount
+        DedicatedMasterEnabled: false
+        ZoneAwarenessEnabled: !If [MultiAZ, true, false]
+        ZoneAwarenessConfig:
+          !If
+            - MultiAZ
+            - AvailabilityZoneCount: 2
+            - !Ref AWS::NoValue
+      EBSOptions:
+        EBSEnabled: true
+        VolumeType: gp3
+        VolumeSize: !Ref VolumeSize
+        Iops: 3000
+        Throughput: 125
+      EncryptionAtRestOptions:
+        Enabled: true
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+        TLSSecurityPolicy: Policy-Min-TLS-1-2-2019-07
+      AdvancedSecurityOptions:
+        Enabled: true
+        InternalUserDatabaseEnabled: true
+        MasterUserOptions:
+          MasterUserName: !Ref MasterUserName
+          MasterUserPassword: !Ref MasterUserPassword
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: '*'
+            Action: 'es:*'
+            Resource: !Sub 'arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${ProjectName}-${Environment}/*'
+      LogPublishingOptions:
+        ES_APPLICATION_LOGS:
+          CloudWatchLogsLogGroupArn: !GetAtt ApplicationLogGroup.Arn
+          Enabled: true
+        SEARCH_SLOW_LOGS:
+          CloudWatchLogsLogGroupArn: !GetAtt SlowSearchLogGroup.Arn
+          Enabled: true
+        INDEX_SLOW_LOGS:
+          CloudWatchLogsLogGroupArn: !GetAtt SlowIndexLogGroup.Arn
+          Enabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  ApplicationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/opensearch/${ProjectName}-${Environment}/application'
+      RetentionInDays: 30
+
+  SlowSearchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/opensearch/${ProjectName}-${Environment}/slow-search'
+      RetentionInDays: 30
+
+  SlowIndexLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/opensearch/${ProjectName}-${Environment}/slow-index'
+      RetentionInDays: 30
+
+  OpenSearchLogPolicy:
+    Type: AWS::Logs::ResourcePolicy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-${Environment}-opensearch-logs'
+      PolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "es.amazonaws.com"
+              },
+              "Action": [
+                "logs:PutLogEvents",
+                "logs:CreateLogStream"
+              ],
+              "Resource": [
+                "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/opensearch/${ProjectName}-${Environment}/*"
+              ]
+            }
+          ]
+        }
+
+Conditions:
+  MultiAZ: !Not [!Equals [!Ref InstanceCount, 1]]
+
+Outputs:
+  DomainArn:
+    Description: OpenSearch domain ARN
+    Value: !GetAtt OpenSearchDomain.Arn
+
+  DomainEndpoint:
+    Description: OpenSearch domain endpoint
+    Value: !GetAtt OpenSearchDomain.DomainEndpoint
+
+  DomainName:
+    Description: OpenSearch domain name
+    Value: !Ref OpenSearchDomain
+
+  DashboardUrl:
+    Description: OpenSearch Dashboards URL
+    Value: !Sub 'https://${OpenSearchDomain.DomainEndpoint}/_dashboards'

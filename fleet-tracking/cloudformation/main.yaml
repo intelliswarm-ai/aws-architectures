@@ -1,0 +1,275 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'GPS Tracking System with Kinesis - Main Stack'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Default: gps-tracking
+    Description: Project name prefix
+
+  KinesisShardCount:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 10
+    Description: Number of Kinesis shards
+
+  KinesisRetentionHours:
+    Type: Number
+    Default: 24
+    MinValue: 24
+    MaxValue: 8760
+    Description: Kinesis data retention in hours
+
+  LambdaMemorySize:
+    Type: Number
+    Default: 512
+    AllowedValues:
+      - 256
+      - 512
+      - 1024
+      - 2048
+    Description: Lambda function memory size
+
+  LambdaTimeout:
+    Type: Number
+    Default: 60
+    MinValue: 30
+    MaxValue: 900
+    Description: Lambda function timeout in seconds
+
+  ConsumerBatchSize:
+    Type: Number
+    Default: 100
+    MinValue: 1
+    MaxValue: 10000
+    Description: Kinesis consumer batch size
+
+  AlarmEmail:
+    Type: String
+    Default: ''
+    Description: Email for CloudWatch alarms
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: General Configuration
+        Parameters:
+          - Environment
+          - ProjectName
+      - Label:
+          default: Kinesis Configuration
+        Parameters:
+          - KinesisShardCount
+          - KinesisRetentionHours
+      - Label:
+          default: Lambda Configuration
+        Parameters:
+          - LambdaMemorySize
+          - LambdaTimeout
+          - ConsumerBatchSize
+      - Label:
+          default: Monitoring
+        Parameters:
+          - AlarmEmail
+
+Resources:
+  # Kinesis Data Stream
+  KinesisStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/kinesis.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        ShardCount: !Ref KinesisShardCount
+        RetentionHours: !Ref KinesisRetentionHours
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # DynamoDB Tables
+  DynamoDBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/dynamodb.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # S3 Bucket for Archive
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/s3.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # SNS Topic for Alerts
+  SNSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/sns.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        AlarmEmail: !Ref AlarmEmail
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Roles
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - KinesisStack
+      - DynamoDBStack
+      - S3Stack
+      - SNSStack
+    Properties:
+      TemplateURL: ./nested/iam.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        KinesisStreamArn: !GetAtt KinesisStack.Outputs.StreamArn
+        PositionsTableArn: !GetAtt DynamoDBStack.Outputs.PositionsTableArn
+        GeofencesTableArn: !GetAtt DynamoDBStack.Outputs.GeofencesTableArn
+        ArchiveBucketArn: !GetAtt S3Stack.Outputs.BucketArn
+        AlertsTopicArn: !GetAtt SNSStack.Outputs.TopicArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Functions
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+      - KinesisStack
+      - DynamoDBStack
+      - S3Stack
+      - SNSStack
+    Properties:
+      TemplateURL: ./nested/lambda.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        MemorySize: !Ref LambdaMemorySize
+        Timeout: !Ref LambdaTimeout
+        ConsumerBatchSize: !Ref ConsumerBatchSize
+        ProducerRoleArn: !GetAtt IAMStack.Outputs.ProducerRoleArn
+        DashboardConsumerRoleArn: !GetAtt IAMStack.Outputs.DashboardConsumerRoleArn
+        GeofenceConsumerRoleArn: !GetAtt IAMStack.Outputs.GeofenceConsumerRoleArn
+        ArchiveConsumerRoleArn: !GetAtt IAMStack.Outputs.ArchiveConsumerRoleArn
+        KinesisStreamName: !GetAtt KinesisStack.Outputs.StreamName
+        KinesisStreamArn: !GetAtt KinesisStack.Outputs.StreamArn
+        PositionsTableName: !GetAtt DynamoDBStack.Outputs.PositionsTableName
+        GeofencesTableName: !GetAtt DynamoDBStack.Outputs.GeofencesTableName
+        ArchiveBucketName: !GetAtt S3Stack.Outputs.BucketName
+        AlertsTopicArn: !GetAtt SNSStack.Outputs.TopicArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # EventBridge Rules
+  EventBridgeStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+    Properties:
+      TemplateURL: ./nested/eventbridge.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        ProducerFunctionArn: !GetAtt LambdaStack.Outputs.ProducerFunctionArn
+        ProducerFunctionName: !GetAtt LambdaStack.Outputs.ProducerFunctionName
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # CloudWatch Monitoring
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - KinesisStack
+      - LambdaStack
+    Properties:
+      TemplateURL: ./nested/cloudwatch.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        KinesisStreamName: !GetAtt KinesisStack.Outputs.StreamName
+        ProducerFunctionName: !GetAtt LambdaStack.Outputs.ProducerFunctionName
+        DashboardConsumerFunctionName: !GetAtt LambdaStack.Outputs.DashboardConsumerFunctionName
+        GeofenceConsumerFunctionName: !GetAtt LambdaStack.Outputs.GeofenceConsumerFunctionName
+        ArchiveConsumerFunctionName: !GetAtt LambdaStack.Outputs.ArchiveConsumerFunctionName
+        AlarmEmail: !Ref AlarmEmail
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  KinesisStreamName:
+    Description: Kinesis stream name
+    Value: !GetAtt KinesisStack.Outputs.StreamName
+
+  KinesisStreamArn:
+    Description: Kinesis stream ARN
+    Value: !GetAtt KinesisStack.Outputs.StreamArn
+
+  PositionsTableName:
+    Description: DynamoDB positions table name
+    Value: !GetAtt DynamoDBStack.Outputs.PositionsTableName
+
+  GeofencesTableName:
+    Description: DynamoDB geofences table name
+    Value: !GetAtt DynamoDBStack.Outputs.GeofencesTableName
+
+  ArchiveBucketName:
+    Description: S3 archive bucket name
+    Value: !GetAtt S3Stack.Outputs.BucketName
+
+  AlertsTopicArn:
+    Description: SNS alerts topic ARN
+    Value: !GetAtt SNSStack.Outputs.TopicArn
+
+  ProducerFunction:
+    Description: GPS producer Lambda function
+    Value: !GetAtt LambdaStack.Outputs.ProducerFunctionName
+
+  DashboardConsumerFunction:
+    Description: Dashboard consumer Lambda function
+    Value: !GetAtt LambdaStack.Outputs.DashboardConsumerFunctionName

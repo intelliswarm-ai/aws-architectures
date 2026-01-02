@@ -1,0 +1,354 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'GPS Tracking - Lambda Functions'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  MemorySize:
+    Type: Number
+    Default: 512
+  Timeout:
+    Type: Number
+    Default: 60
+  ConsumerBatchSize:
+    Type: Number
+    Default: 100
+  ProducerRoleArn:
+    Type: String
+  DashboardConsumerRoleArn:
+    Type: String
+  GeofenceConsumerRoleArn:
+    Type: String
+  ArchiveConsumerRoleArn:
+    Type: String
+  KinesisStreamName:
+    Type: String
+  KinesisStreamArn:
+    Type: String
+  PositionsTableName:
+    Type: String
+  GeofencesTableName:
+    Type: String
+  ArchiveBucketName:
+    Type: String
+  AlertsTopicArn:
+    Type: String
+
+Resources:
+  # GPS Producer Function
+  ProducerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-gps-producer'
+      Runtime: python3.12
+      Handler: gps_producer.handler
+      Role: !Ref ProducerRoleArn
+      Timeout: !Ref Timeout
+      MemorySize: 256
+      Environment:
+        Variables:
+          KINESIS_STREAM_NAME: !Ref KinesisStreamName
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import random
+          import uuid
+          from datetime import datetime
+
+          kinesis = boto3.client('kinesis')
+          STREAM_NAME = os.environ['KINESIS_STREAM_NAME']
+
+          def handler(event, context):
+              """Simulate GPS coordinates from trucks."""
+              trucks = [f'TRUCK-{i:03d}' for i in range(1, 11)]
+
+              records = []
+              for truck_id in trucks:
+                  record = {
+                      'truck_id': truck_id,
+                      'timestamp': datetime.utcnow().isoformat(),
+                      'latitude': 52.52 + random.uniform(-0.1, 0.1),
+                      'longitude': 13.405 + random.uniform(-0.1, 0.1),
+                      'speed': random.uniform(0, 120),
+                      'heading': random.uniform(0, 360)
+                  }
+                  records.append({
+                      'Data': json.dumps(record).encode(),
+                      'PartitionKey': truck_id
+                  })
+
+              response = kinesis.put_records(
+                  StreamName=STREAM_NAME,
+                  Records=records
+              )
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({
+                      'message': f'Sent {len(records)} GPS records',
+                      'failed': response['FailedRecordCount']
+                  })
+              }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  ProducerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProducerFunction}'
+      RetentionInDays: 30
+
+  # Dashboard Consumer Function
+  DashboardConsumerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-dashboard-consumer'
+      Runtime: python3.12
+      Handler: dashboard_consumer.handler
+      Role: !Ref DashboardConsumerRoleArn
+      Timeout: !Ref Timeout
+      MemorySize: !Ref MemorySize
+      Environment:
+        Variables:
+          POSITIONS_TABLE: !Ref PositionsTableName
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import base64
+          from datetime import datetime, timedelta
+
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table(os.environ['POSITIONS_TABLE'])
+
+          def handler(event, context):
+              """Process GPS records and update dashboard positions."""
+              processed = 0
+
+              for record in event['Records']:
+                  payload = json.loads(base64.b64decode(record['kinesis']['data']))
+
+                  # Calculate TTL (24 hours from now)
+                  ttl = int((datetime.utcnow() + timedelta(hours=24)).timestamp())
+
+                  table.put_item(Item={
+                      'truck_id': payload['truck_id'],
+                      'timestamp': payload['timestamp'],
+                      'latitude': str(payload['latitude']),
+                      'longitude': str(payload['longitude']),
+                      'speed': str(payload['speed']),
+                      'heading': str(payload['heading']),
+                      'ttl': ttl
+                  })
+                  processed += 1
+
+              return {'processed': processed}
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  DashboardConsumerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DashboardConsumerFunction}'
+      RetentionInDays: 30
+
+  DashboardConsumerEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !Ref KinesisStreamArn
+      FunctionName: !Ref DashboardConsumerFunction
+      StartingPosition: LATEST
+      BatchSize: !Ref ConsumerBatchSize
+      MaximumBatchingWindowInSeconds: 10
+
+  # Geofence Consumer Function
+  GeofenceConsumerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-geofence-consumer'
+      Runtime: python3.12
+      Handler: geofence_consumer.handler
+      Role: !Ref GeofenceConsumerRoleArn
+      Timeout: !Ref Timeout
+      MemorySize: !Ref MemorySize
+      Environment:
+        Variables:
+          GEOFENCES_TABLE: !Ref GeofencesTableName
+          ALERTS_TOPIC_ARN: !Ref AlertsTopicArn
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import base64
+          import math
+
+          dynamodb = boto3.resource('dynamodb')
+          sns = boto3.client('sns')
+          geofences_table = dynamodb.Table(os.environ['GEOFENCES_TABLE'])
+          ALERTS_TOPIC = os.environ['ALERTS_TOPIC_ARN']
+
+          def handler(event, context):
+              """Check GPS positions against geofences."""
+              alerts = 0
+
+              # Get all geofences
+              geofences = geofences_table.scan()['Items']
+
+              for record in event['Records']:
+                  payload = json.loads(base64.b64decode(record['kinesis']['data']))
+
+                  for geofence in geofences:
+                      # Simple distance check (placeholder)
+                      if is_inside_geofence(payload, geofence):
+                          sns.publish(
+                              TopicArn=ALERTS_TOPIC,
+                              Message=json.dumps({
+                                  'type': 'GEOFENCE_ENTRY',
+                                  'truck_id': payload['truck_id'],
+                                  'geofence': geofence.get('name', 'Unknown'),
+                                  'timestamp': payload['timestamp']
+                              }),
+                              Subject=f"Geofence Alert: {payload['truck_id']}"
+                          )
+                          alerts += 1
+
+              return {'alerts_sent': alerts}
+
+          def is_inside_geofence(position, geofence):
+              # Placeholder - implement actual geofence logic
+              return False
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  GeofenceConsumerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${GeofenceConsumerFunction}'
+      RetentionInDays: 30
+
+  GeofenceConsumerEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !Ref KinesisStreamArn
+      FunctionName: !Ref GeofenceConsumerFunction
+      StartingPosition: LATEST
+      BatchSize: !Ref ConsumerBatchSize
+      MaximumBatchingWindowInSeconds: 10
+
+  # Archive Consumer Function
+  ArchiveConsumerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-archive-consumer'
+      Runtime: python3.12
+      Handler: archive_consumer.handler
+      Role: !Ref ArchiveConsumerRoleArn
+      Timeout: !Ref Timeout
+      MemorySize: 256
+      Environment:
+        Variables:
+          ARCHIVE_BUCKET: !Ref ArchiveBucketName
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import base64
+          from datetime import datetime
+
+          s3 = boto3.client('s3')
+          BUCKET = os.environ['ARCHIVE_BUCKET']
+
+          def handler(event, context):
+              """Archive GPS records to S3."""
+              records_data = []
+
+              for record in event['Records']:
+                  payload = json.loads(base64.b64decode(record['kinesis']['data']))
+                  records_data.append(payload)
+
+              if records_data:
+                  # Create archive key with timestamp
+                  now = datetime.utcnow()
+                  key = f"archive/{now.year}/{now.month:02d}/{now.day:02d}/{now.hour:02d}/{now.strftime('%Y%m%d_%H%M%S')}.json"
+
+                  s3.put_object(
+                      Bucket=BUCKET,
+                      Key=key,
+                      Body=json.dumps(records_data),
+                      ContentType='application/json'
+                  )
+
+              return {'archived': len(records_data)}
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  ArchiveConsumerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ArchiveConsumerFunction}'
+      RetentionInDays: 30
+
+  ArchiveConsumerEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !Ref KinesisStreamArn
+      FunctionName: !Ref ArchiveConsumerFunction
+      StartingPosition: LATEST
+      BatchSize: !Ref ConsumerBatchSize
+      MaximumBatchingWindowInSeconds: 60
+
+Outputs:
+  ProducerFunctionArn:
+    Description: Producer function ARN
+    Value: !GetAtt ProducerFunction.Arn
+
+  ProducerFunctionName:
+    Description: Producer function name
+    Value: !Ref ProducerFunction
+
+  DashboardConsumerFunctionArn:
+    Description: Dashboard consumer function ARN
+    Value: !GetAtt DashboardConsumerFunction.Arn
+
+  DashboardConsumerFunctionName:
+    Description: Dashboard consumer function name
+    Value: !Ref DashboardConsumerFunction
+
+  GeofenceConsumerFunctionArn:
+    Description: Geofence consumer function ARN
+    Value: !GetAtt GeofenceConsumerFunction.Arn
+
+  GeofenceConsumerFunctionName:
+    Description: Geofence consumer function name
+    Value: !Ref GeofenceConsumerFunction
+
+  ArchiveConsumerFunctionArn:
+    Description: Archive consumer function ARN
+    Value: !GetAtt ArchiveConsumerFunction.Arn
+
+  ArchiveConsumerFunctionName:
+    Description: Archive consumer function name
+    Value: !Ref ArchiveConsumerFunction

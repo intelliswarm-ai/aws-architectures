@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Enterprise Serverless Platform - EventBridge Rules'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  SyncLambdaArn:
+    Type: String
+  SyncLambdaName:
+    Type: String
+
+Resources:
+  # Email Sync Schedule (every 15 minutes)
+  EmailSyncRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-email-sync'
+      Description: Trigger email sync every 15 minutes
+      ScheduleExpression: rate(15 minutes)
+      State: ENABLED
+      Targets:
+        - Id: EmailSyncLambda
+          Arn: !Ref SyncLambdaArn
+
+  EmailSyncPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SyncLambdaName
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EmailSyncRule.Arn
+
+  # Daily cleanup rule
+  CleanupRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-daily-cleanup'
+      Description: Daily cleanup tasks
+      ScheduleExpression: cron(0 2 * * ? *)
+      State: ENABLED
+      Targets:
+        - Id: CleanupLambda
+          Arn: !Ref SyncLambdaArn
+          Input: '{"task": "cleanup"}'
+
+  CleanupPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SyncLambdaName
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt CleanupRule.Arn
+
+Outputs:
+  EmailSyncRuleArn:
+    Value: !GetAtt EmailSyncRule.Arn

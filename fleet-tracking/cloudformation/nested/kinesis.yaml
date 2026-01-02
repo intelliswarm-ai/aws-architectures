@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'GPS Tracking - Kinesis Data Stream'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  ShardCount:
+    Type: Number
+    Default: 2
+  RetentionHours:
+    Type: Number
+    Default: 24
+
+Resources:
+  GPSDataStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-gps-coordinates'
+      ShardCount: !Ref ShardCount
+      RetentionPeriodHours: !Ref RetentionHours
+      StreamEncryption:
+        EncryptionType: KMS
+        KeyId: alias/aws/kinesis
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+Outputs:
+  StreamName:
+    Description: Kinesis stream name
+    Value: !Ref GPSDataStream
+
+  StreamArn:
+    Description: Kinesis stream ARN
+    Value: !GetAtt GPSDataStream.Arn

@@ -1,0 +1,248 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Hybrid Cloud Platform - CloudWatch Monitoring'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  EnvironmentName:
+    Type: String
+  LoadBalancerArn:
+    Type: String
+  NotificationEmail:
+    Type: String
+    Default: ''
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref NotificationEmail, '']]
+
+Resources:
+  # SNS Topic for Alarms
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasEmail
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-alarms'
+
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  # Environment Health Alarm
+  EnvironmentHealthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-env-health'
+      AlarmDescription: Elastic Beanstalk environment health degraded
+      MetricName: EnvironmentHealth
+      Namespace: AWS/ElasticBeanstalk
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 15
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: EnvironmentName
+          Value: !Ref EnvironmentName
+      AlarmActions:
+        - !If [HasEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # Application Latency Alarm
+  LatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-high-latency'
+      AlarmDescription: Application response latency too high
+      MetricName: ApplicationLatencyP99
+      Namespace: AWS/ElasticBeanstalk
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 5000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: EnvironmentName
+          Value: !Ref EnvironmentName
+      AlarmActions:
+        - !If [HasEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # 5XX Error Rate Alarm
+  Error5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-5xx-errors'
+      AlarmDescription: High rate of 5XX errors
+      MetricName: ApplicationRequests5xx
+      Namespace: AWS/ElasticBeanstalk
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 50
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: EnvironmentName
+          Value: !Ref EnvironmentName
+      AlarmActions:
+        - !If [HasEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # CPU Utilization Alarm
+  CPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-high-cpu'
+      AlarmDescription: High CPU utilization
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: EnvironmentName
+          Value: !Ref EnvironmentName
+      AlarmActions:
+        - !If [HasEmail, !Ref AlarmTopic, !Ref 'AWS::NoValue']
+
+  # Dashboard
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-${Environment}-dashboard'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Environment Health",
+                "metrics": [
+                  ["AWS/ElasticBeanstalk", "EnvironmentHealth", "EnvironmentName", "${EnvironmentName}"]
+                ],
+                "period": 60,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "view": "timeSeries"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Instance Count",
+                "metrics": [
+                  ["AWS/ElasticBeanstalk", "InstancesOk", "EnvironmentName", "${EnvironmentName}"],
+                  [".", "InstancesDegraded", ".", "."],
+                  [".", "InstancesSevere", ".", "."]
+                ],
+                "period": 60,
+                "stat": "Average",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Request Count",
+                "metrics": [
+                  ["AWS/ElasticBeanstalk", "ApplicationRequestsTotal", "EnvironmentName", "${EnvironmentName}"],
+                  [".", "ApplicationRequests2xx", ".", "."],
+                  [".", "ApplicationRequests4xx", ".", "."],
+                  [".", "ApplicationRequests5xx", ".", "."]
+                ],
+                "period": 60,
+                "stat": "Sum",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Response Latency",
+                "metrics": [
+                  ["AWS/ElasticBeanstalk", "ApplicationLatencyP50", "EnvironmentName", "${EnvironmentName}"],
+                  [".", "ApplicationLatencyP90", ".", "."],
+                  [".", "ApplicationLatencyP99", ".", "."]
+                ],
+                "period": 60,
+                "stat": "Average",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 12,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "CPU Utilization",
+                "metrics": [
+                  ["AWS/EC2", "CPUUtilization", "EnvironmentName", "${EnvironmentName}"]
+                ],
+                "period": 60,
+                "stat": "Average",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 12,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Network Traffic",
+                "metrics": [
+                  ["AWS/EC2", "NetworkIn", "EnvironmentName", "${EnvironmentName}"],
+                  [".", "NetworkOut", ".", "."]
+                ],
+                "period": 60,
+                "stat": "Average",
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 18,
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "title": "Root Volume Usage",
+                "metrics": [
+                  ["AWS/ElasticBeanstalk", "RootFilesystemUtil", "EnvironmentName", "${EnvironmentName}"]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  DashboardName:
+    Value: !Ref Dashboard
+  AlarmTopicArn:
+    Value: !If [HasEmail, !Ref AlarmTopic, '']

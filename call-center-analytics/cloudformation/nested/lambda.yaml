@@ -1,0 +1,252 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Call Sentiment Analysis - Lambda Functions'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  LambdaExecutionRoleArn:
+    Type: String
+  ComprehendRoleArn:
+    Type: String
+  TranscriptsBucket:
+    Type: String
+  OutputBucket:
+    Type: String
+  OpenSearchEndpoint:
+    Type: String
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+
+Resources:
+  # Transcript Processor Function
+  TranscriptProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-transcript-processor'
+      Runtime: python3.12
+      Handler: transcript_processor.handler
+      Role: !Ref LambdaExecutionRoleArn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TRANSCRIPTS_BUCKET: !Ref TranscriptsBucket
+          OUTPUT_BUCKET: !Ref OutputBucket
+          OPENSEARCH_ENDPOINT: !Ref OpenSearchEndpoint
+          INDEX_NAME: call-sentiment-transcripts
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          def handler(event, context):
+              """Process transcript and analyze sentiment."""
+              print(f"Processing event: {json.dumps(event)}")
+
+              # Placeholder - actual implementation in src/handlers
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({'message': 'Transcript processed'})
+              }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  TranscriptProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${TranscriptProcessorFunction}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  TranscriptProcessorS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TranscriptProcessorFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub 'arn:aws:s3:::${TranscriptsBucket}'
+
+  # Comprehend Handler Function
+  ComprehendHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-comprehend-handler'
+      Runtime: python3.12
+      Handler: comprehend_handler.handler
+      Role: !Ref LambdaExecutionRoleArn
+      Timeout: 900
+      MemorySize: 1024
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          TRANSCRIPTS_BUCKET: !Ref TranscriptsBucket
+          OUTPUT_BUCKET: !Ref OutputBucket
+          COMPREHEND_ROLE_ARN: !Ref ComprehendRoleArn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          def handler(event, context):
+              """Handle batch Comprehend jobs."""
+              print(f"Processing event: {json.dumps(event)}")
+
+              # Placeholder - actual implementation in src/handlers
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({'message': 'Batch job started'})
+              }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  ComprehendHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ComprehendHandlerFunction}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  # Result Indexer Function
+  ResultIndexerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-result-indexer'
+      Runtime: python3.12
+      Handler: result_indexer.handler
+      Role: !Ref LambdaExecutionRoleArn
+      Timeout: 300
+      MemorySize: 256
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          OUTPUT_BUCKET: !Ref OutputBucket
+          OPENSEARCH_ENDPOINT: !Ref OpenSearchEndpoint
+          INDEX_NAME: call-sentiment-transcripts
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          def handler(event, context):
+              """Index results to OpenSearch."""
+              print(f"Processing event: {json.dumps(event)}")
+
+              # Placeholder - actual implementation in src/handlers
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({'message': 'Results indexed'})
+              }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  ResultIndexerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ResultIndexerFunction}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  ResultIndexerS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ResultIndexerFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub 'arn:aws:s3:::${OutputBucket}'
+
+  # API Handler Function
+  ApiHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-api-handler'
+      Runtime: python3.12
+      Handler: api_handler.handler
+      Role: !Ref LambdaExecutionRoleArn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          OPENSEARCH_ENDPOINT: !Ref OpenSearchEndpoint
+          INDEX_NAME: call-sentiment-transcripts
+      Code:
+        ZipFile: |
+          import json
+          import os
+
+          def handler(event, context):
+              """Handle API requests."""
+              print(f"Processing event: {json.dumps(event)}")
+
+              path = event.get('path', '/')
+              method = event.get('httpMethod', 'GET')
+
+              if path == '/health':
+                  return {
+                      'statusCode': 200,
+                      'headers': {'Content-Type': 'application/json'},
+                      'body': json.dumps({'status': 'healthy'})
+                  }
+
+              return {
+                  'statusCode': 200,
+                  'headers': {'Content-Type': 'application/json'},
+                  'body': json.dumps({'message': 'API Handler'})
+              }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  ApiHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ApiHandlerFunction}'
+      RetentionInDays: !Ref LogRetentionDays
+
+Outputs:
+  TranscriptProcessorArn:
+    Description: Transcript processor function ARN
+    Value: !GetAtt TranscriptProcessorFunction.Arn
+
+  TranscriptProcessorName:
+    Description: Transcript processor function name
+    Value: !Ref TranscriptProcessorFunction
+
+  ComprehendHandlerArn:
+    Description: Comprehend handler function ARN
+    Value: !GetAtt ComprehendHandlerFunction.Arn
+
+  ComprehendHandlerName:
+    Description: Comprehend handler function name
+    Value: !Ref ComprehendHandlerFunction
+
+  ResultIndexerArn:
+    Description: Result indexer function ARN
+    Value: !GetAtt ResultIndexerFunction.Arn
+
+  ResultIndexerName:
+    Description: Result indexer function name
+    Value: !Ref ResultIndexerFunction
+
+  ApiHandlerArn:
+    Description: API handler function ARN
+    Value: !GetAtt ApiHandlerFunction.Arn
+
+  ApiHandlerName:
+    Description: API handler function name
+    Value: !Ref ApiHandlerFunction
