@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: API Gateway for Airline Chatbot
+
+Parameters:
+  NamePrefix:
+    Type: String
+    Description: Prefix for resource names
+  Environment:
+    Type: String
+    Description: Environment name
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+  LexBotId:
+    Type: String
+    Description: Lex bot ID
+  LexBotAliasId:
+    Type: String
+    Description: Lex bot alias ID
+  ApiGatewayRoleArn:
+    Type: String
+    Description: API Gateway role ARN
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, 'prod']
+
+Resources:
+  # CloudWatch Log Group for API Gateway
+  ApiGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/apigateway/${NamePrefix}-api'
+      RetentionInDays: !If [IsProd, 90, 30]
+
+  # REST API
+  ChatbotApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${NamePrefix}-api'
+      Description: API for Airline Chatbot
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-api'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # /chat resource
+  ChatResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ChatbotApi
+      ParentId: !GetAtt ChatbotApi.RootResourceId
+      PathPart: chat
+
+  # POST /chat method
+  ChatPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ChatbotApi
+      ResourceId: !Ref ChatResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      RequestParameters:
+        method.request.header.Content-Type: true
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lex:path/bot/${LexBotId}/alias/${LexBotAliasId}/user/{userId}/text'
+        Credentials: !Ref ApiGatewayRoleArn
+        RequestParameters:
+          integration.request.path.userId: context.requestId
+        RequestTemplates:
+          application/json: |
+            {
+              "inputText": $input.json('$.message'),
+              "sessionAttributes": $input.json('$.sessionAttributes')
+            }
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: |
+                {
+                  "message": $input.json('$.message'),
+                  "sessionAttributes": $input.json('$.sessionAttributes'),
+                  "dialogState": $input.json('$.dialogState'),
+                  "intentName": $input.json('$.intentName')
+                }
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+          ResponseModels:
+            application/json: Empty
+
+  # OPTIONS /chat method (CORS)
+  ChatOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ChatbotApi
+      ResourceId: !Ref ChatResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+          ResponseModels:
+            application/json: Empty
+
+  # Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ChatPostMethod
+      - ChatOptionsMethod
+    Properties:
+      RestApiId: !Ref ChatbotApi
+
+  # Stage
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref ChatbotApi
+      DeploymentId: !Ref ApiDeployment
+      StageName: !Ref Environment
+      Description: !Sub '${Environment} stage'
+      AccessLogSetting:
+        DestinationArn: !GetAtt ApiGatewayLogGroup.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","resourcePath":"$context.resourcePath","status":"$context.status","responseLength":"$context.responseLength","integrationLatency":"$context.integrationLatency"}'
+      MethodSettings:
+        - ResourcePath: /*
+          HttpMethod: '*'
+          LoggingLevel: INFO
+          DataTraceEnabled: !If [IsProd, false, true]
+          MetricsEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${ChatbotApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/chat'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'
+
+  ApiId:
+    Description: API Gateway ID
+    Value: !Ref ChatbotApi
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiId'

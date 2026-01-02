@@ -1,0 +1,149 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IAM roles and policies for Airline Chatbot
+
+Parameters:
+  NamePrefix:
+    Type: String
+    Description: Prefix for resource names
+  Environment:
+    Type: String
+    Description: Environment name
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+Resources:
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${NamePrefix}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub '${NamePrefix}-lambda-policy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${NamePrefix}-*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${NamePrefix}-*/index/*'
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-lambda-role'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lex Service Role
+  LexServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${NamePrefix}-lex-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lexv2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub '${NamePrefix}-lex-policy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - polly:SynthesizeSpeech
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${NamePrefix}-*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-lex-role'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # API Gateway Role
+  ApiGatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${NamePrefix}-apigw-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub '${NamePrefix}-apigw-policy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lex:RecognizeText
+                  - lex:RecognizeUtterance
+                  - lex:DeleteSession
+                  - lex:GetSession
+                  - lex:PutSession
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-apigw-role'
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  LambdaExecutionRoleArn:
+    Description: Lambda execution role ARN
+    Value: !GetAtt LambdaExecutionRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaRoleArn'
+
+  LexServiceRoleArn:
+    Description: Lex service role ARN
+    Value: !GetAtt LexServiceRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LexRoleArn'
+
+  ApiGatewayRoleArn:
+    Description: API Gateway role ARN
+    Value: !GetAtt ApiGatewayRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiGatewayRoleArn'

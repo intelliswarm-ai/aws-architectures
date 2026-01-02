@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudWatch monitoring for Airline Chatbot
+
+Parameters:
+  NamePrefix:
+    Type: String
+    Description: Prefix for resource names
+  Environment:
+    Type: String
+    Description: Environment name
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+  FulfillmentLambdaName:
+    Type: String
+    Description: Fulfillment Lambda function name
+  LexBotId:
+    Type: String
+    Description: Lex bot ID
+  AlarmEmail:
+    Type: String
+    Description: Email for alarm notifications
+    Default: ''
+
+Conditions:
+  HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, '']]
+
+Resources:
+  # SNS Topic for Alarms
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasAlarmEmail
+    Properties:
+      TopicName: !Sub '${NamePrefix}-alarms'
+      DisplayName: Airline Chatbot Alarms
+
+  AlarmSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlarmEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  # CloudWatch Dashboard
+  ChatbotDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${NamePrefix}-dashboard'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Invocations",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${FulfillmentLambdaName}", {"stat": "Sum", "period": 300}],
+                  ["AWS/Lambda", "Errors", "FunctionName", "${FulfillmentLambdaName}", {"stat": "Sum", "period": 300}]
+                ],
+                "view": "timeSeries"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Duration",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["AWS/Lambda", "Duration", "FunctionName", "${FulfillmentLambdaName}", {"stat": "Average", "period": 300}],
+                  ["AWS/Lambda", "Duration", "FunctionName", "${FulfillmentLambdaName}", {"stat": "Maximum", "period": 300}]
+                ],
+                "view": "timeSeries"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lex Bot Metrics",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["AWS/Lex", "MissedUtteranceCount", "BotId", "${LexBotId}", {"stat": "Sum", "period": 300}],
+                  ["AWS/Lex", "RuntimeRequestCount", "BotId", "${LexBotId}", {"stat": "Sum", "period": 300}]
+                ],
+                "view": "timeSeries"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Concurrent Executions",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["AWS/Lambda", "ConcurrentExecutions", "FunctionName", "${FulfillmentLambdaName}", {"stat": "Maximum", "period": 300}]
+                ],
+                "view": "timeSeries"
+              }
+            },
+            {
+              "type": "log",
+              "x": 0,
+              "y": 12,
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "title": "Recent Errors",
+                "region": "${AWS::Region}",
+                "query": "SOURCE '/aws/lambda/${FulfillmentLambdaName}' | fields @timestamp, @message | filter @message like /ERROR/ | sort @timestamp desc | limit 50",
+                "view": "table"
+              }
+            }
+          ]
+        }
+
+  # Alarm for Lambda errors
+  LambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${NamePrefix}-lambda-errors'
+      AlarmDescription: Lambda function errors exceeded threshold
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref FulfillmentLambdaName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        !If
+          - HasAlarmEmail
+          - [!Ref AlarmTopic]
+          - !Ref 'AWS::NoValue'
+
+  # Alarm for missed utterances
+  MissedUtterancesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${NamePrefix}-missed-utterances'
+      AlarmDescription: High number of missed utterances - consider adding more training phrases
+      Namespace: AWS/Lex
+      MetricName: MissedUtteranceCount
+      Dimensions:
+        - Name: BotId
+          Value: !Ref LexBotId
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 20
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        !If
+          - HasAlarmEmail
+          - [!Ref AlarmTopic]
+          - !Ref 'AWS::NoValue'
+
+  # Alarm for Lambda duration
+  LambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${NamePrefix}-lambda-duration'
+      AlarmDescription: Lambda duration approaching timeout
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref FulfillmentLambdaName
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 25000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        !If
+          - HasAlarmEmail
+          - [!Ref AlarmTopic]
+          - !Ref 'AWS::NoValue'
+
+Outputs:
+  DashboardUrl:
+    Description: CloudWatch dashboard URL
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${NamePrefix}-dashboard'
+    Export:
+      Name: !Sub '${AWS::StackName}-DashboardUrl'
+
+  AlarmTopicArn:
+    Description: SNS topic ARN for alarms
+    Condition: HasAlarmEmail
+    Value: !Ref AlarmTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-AlarmTopicArn'

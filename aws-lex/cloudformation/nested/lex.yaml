@@ -1,0 +1,363 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Amazon Lex V2 bot for Airline Chatbot
+
+Parameters:
+  NamePrefix:
+    Type: String
+    Description: Prefix for resource names
+  Environment:
+    Type: String
+    Description: Environment name
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+  LexRoleArn:
+    Type: String
+    Description: Lex service role ARN
+  FulfillmentLambdaArn:
+    Type: String
+    Description: Fulfillment Lambda function ARN
+  BotLocale:
+    Type: String
+    Description: Bot locale
+    Default: en_US
+  IdleSessionTTL:
+    Type: Number
+    Description: Idle session timeout in seconds
+    Default: 300
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, 'prod']
+
+Resources:
+  # CloudWatch Log Group for Lex conversations
+  LexConversationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lex/${NamePrefix}-bot'
+      RetentionInDays: !If [IsProd, 90, 30]
+
+  # Lex V2 Bot
+  AirlineBot:
+    Type: AWS::Lex::Bot
+    Properties:
+      Name: !Sub '${NamePrefix}-bot'
+      Description: Airline Assistant Chatbot for flight bookings, updates, and check-ins
+      RoleArn: !Ref LexRoleArn
+      DataPrivacy:
+        ChildDirected: false
+      IdleSessionTTLInSeconds: !Ref IdleSessionTTL
+      AutoBuildBotLocales: true
+      BotLocales:
+        - LocaleId: !Ref BotLocale
+          NluConfidenceThreshold: 0.7
+          VoiceSettings:
+            VoiceId: Joanna
+            Engine: neural
+          SlotTypes:
+            # CabinClass Slot Type
+            - Name: CabinClass
+              Description: Cabin class options
+              ValueSelectionSetting:
+                ResolutionStrategy: OriginalValue
+              SlotTypeValues:
+                - SampleValue:
+                    Value: economy
+                  Synonyms:
+                    - Value: coach
+                    - Value: standard
+                - SampleValue:
+                    Value: business
+                  Synonyms:
+                    - Value: business class
+                - SampleValue:
+                    Value: first
+                  Synonyms:
+                    - Value: first class
+            # UpdateType Slot Type
+            - Name: UpdateType
+              Description: Booking update type options
+              ValueSelectionSetting:
+                ResolutionStrategy: OriginalValue
+              SlotTypeValues:
+                - SampleValue:
+                    Value: date
+                  Synonyms:
+                    - Value: flight date
+                    - Value: departure date
+                - SampleValue:
+                    Value: passengers
+                  Synonyms:
+                    - Value: travellers
+                    - Value: travelers
+                - SampleValue:
+                    Value: seats
+                  Synonyms:
+                    - Value: seat assignment
+                - SampleValue:
+                    Value: cabin
+                  Synonyms:
+                    - Value: cabin class
+                    - Value: class
+            # SeatPreference Slot Type
+            - Name: SeatPreference
+              Description: Seat preference options
+              ValueSelectionSetting:
+                ResolutionStrategy: OriginalValue
+              SlotTypeValues:
+                - SampleValue:
+                    Value: window
+                - SampleValue:
+                    Value: middle
+                  Synonyms:
+                    - Value: center
+                - SampleValue:
+                    Value: aisle
+          Intents:
+            # BookFlight Intent
+            - Name: BookFlight
+              Description: Intent to book a flight
+              SampleUtterances:
+                - Utterance: I want to book a flight
+                - Utterance: Book a flight
+                - Utterance: Book me a flight from {Origin} to {Destination}
+                - Utterance: I need tickets from {Origin} to {Destination}
+                - Utterance: Find flights from {Origin} to {Destination} on {DepartureDate}
+                - Utterance: I want to fly from {Origin} to {Destination}
+                - Utterance: Book {Passengers} tickets to {Destination}
+              SlotPriorities:
+                - Priority: 1
+                  SlotName: Origin
+                - Priority: 2
+                  SlotName: Destination
+                - Priority: 3
+                  SlotName: DepartureDate
+                - Priority: 4
+                  SlotName: Passengers
+                - Priority: 5
+                  SlotName: CabinClass
+              Slots:
+                - Name: Origin
+                  SlotTypeName: AMAZON.City
+                  ValueElicitationSetting:
+                    SlotConstraint: Required
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: Where would you like to fly from?
+                      MaxRetries: 3
+                - Name: Destination
+                  SlotTypeName: AMAZON.City
+                  ValueElicitationSetting:
+                    SlotConstraint: Required
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: Where would you like to fly to?
+                      MaxRetries: 3
+                - Name: DepartureDate
+                  SlotTypeName: AMAZON.Date
+                  ValueElicitationSetting:
+                    SlotConstraint: Required
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: When do you want to depart?
+                      MaxRetries: 3
+                - Name: Passengers
+                  SlotTypeName: AMAZON.Number
+                  ValueElicitationSetting:
+                    SlotConstraint: Required
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: How many passengers?
+                      MaxRetries: 3
+                - Name: CabinClass
+                  SlotTypeName: CabinClass
+                  ValueElicitationSetting:
+                    SlotConstraint: Optional
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: Which cabin class? Economy, Business, or First?
+                      MaxRetries: 2
+              FulfillmentCodeHook:
+                Enabled: true
+              DialogCodeHook:
+                Enabled: true
+
+            # UpdateBooking Intent
+            - Name: UpdateBooking
+              Description: Intent to update an existing booking
+              SampleUtterances:
+                - Utterance: I want to change my booking
+                - Utterance: Update my booking
+                - Utterance: Change booking {BookingReference}
+                - Utterance: Modify my reservation
+                - Utterance: I need to change my flight date
+                - Utterance: Update booking {BookingReference}
+              SlotPriorities:
+                - Priority: 1
+                  SlotName: BookingReference
+                - Priority: 2
+                  SlotName: UpdateType
+                - Priority: 3
+                  SlotName: NewValue
+              Slots:
+                - Name: BookingReference
+                  SlotTypeName: AMAZON.AlphaNumeric
+                  ValueElicitationSetting:
+                    SlotConstraint: Required
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: What's your booking reference?
+                      MaxRetries: 3
+                - Name: UpdateType
+                  SlotTypeName: UpdateType
+                  ValueElicitationSetting:
+                    SlotConstraint: Required
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: What would you like to update? Date, passengers, or seats?
+                      MaxRetries: 3
+                - Name: NewValue
+                  SlotTypeName: AMAZON.AlphaNumeric
+                  ValueElicitationSetting:
+                    SlotConstraint: Required
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: What's the new value?
+                      MaxRetries: 3
+              FulfillmentCodeHook:
+                Enabled: true
+              DialogCodeHook:
+                Enabled: true
+
+            # CheckIn Intent
+            - Name: CheckIn
+              Description: Intent to check in for a flight
+              SampleUtterances:
+                - Utterance: I want to check in
+                - Utterance: Check in for my flight
+                - Utterance: Online check in
+                - Utterance: Check in for booking {BookingReference}
+                - Utterance: Web check in please
+                - Utterance: I need to check in
+              SlotPriorities:
+                - Priority: 1
+                  SlotName: BookingReference
+                - Priority: 2
+                  SlotName: PassengerName
+                - Priority: 3
+                  SlotName: SeatPreference
+              Slots:
+                - Name: BookingReference
+                  SlotTypeName: AMAZON.AlphaNumeric
+                  ValueElicitationSetting:
+                    SlotConstraint: Required
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: What's your booking reference?
+                      MaxRetries: 3
+                - Name: PassengerName
+                  SlotTypeName: AMAZON.FirstName
+                  ValueElicitationSetting:
+                    SlotConstraint: Required
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: What's the passenger's first name?
+                      MaxRetries: 3
+                - Name: SeatPreference
+                  SlotTypeName: SeatPreference
+                  ValueElicitationSetting:
+                    SlotConstraint: Optional
+                    PromptSpecification:
+                      MessageGroupsList:
+                        - Message:
+                            PlainTextMessage:
+                              Value: Do you prefer window, middle, or aisle?
+                      MaxRetries: 2
+              FulfillmentCodeHook:
+                Enabled: true
+              DialogCodeHook:
+                Enabled: true
+
+            # Fallback Intent
+            - Name: FallbackIntent
+              Description: Fallback intent for unrecognized utterances
+              ParentIntentSignature: AMAZON.FallbackIntent
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-bot'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Bot Version
+  BotVersion:
+    Type: AWS::Lex::BotVersion
+    Properties:
+      BotId: !Ref AirlineBot
+      BotVersionLocaleSpecification:
+        - LocaleId: !Ref BotLocale
+          BotVersionLocaleDetails:
+            SourceBotVersion: DRAFT
+
+  # Bot Alias
+  BotAlias:
+    Type: AWS::Lex::BotAlias
+    Properties:
+      BotId: !Ref AirlineBot
+      BotAliasName: !Sub '${Environment}-alias'
+      Description: !Sub 'Live alias for ${Environment} environment'
+      BotVersion: !GetAtt BotVersion.BotVersion
+      BotAliasLocaleSettings:
+        - LocaleId: !Ref BotLocale
+          BotAliasLocaleSetting:
+            Enabled: true
+            CodeHookSpecification:
+              LambdaCodeHook:
+                LambdaArn: !Ref FulfillmentLambdaArn
+                CodeHookInterfaceVersion: '1.0'
+      ConversationLogSettings:
+        TextLogSettings:
+          - Enabled: true
+            Destination:
+              CloudWatch:
+                CloudWatchLogGroupArn: !GetAtt LexConversationLogGroup.Arn
+                LogPrefix: lex-conversations
+
+Outputs:
+  BotId:
+    Description: Lex bot ID
+    Value: !Ref AirlineBot
+    Export:
+      Name: !Sub '${AWS::StackName}-BotId'
+
+  BotAliasId:
+    Description: Lex bot alias ID
+    Value: !GetAtt BotAlias.BotAliasId
+    Export:
+      Name: !Sub '${AWS::StackName}-BotAliasId'
+
+  BotVersion:
+    Description: Lex bot version
+    Value: !GetAtt BotVersion.BotVersion
+    Export:
+      Name: !Sub '${AWS::StackName}-BotVersion'

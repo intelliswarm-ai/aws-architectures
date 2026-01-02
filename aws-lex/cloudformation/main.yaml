@@ -1,0 +1,270 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Lex Airline Chatbot - Main Stack
+  A conversational AI chatbot for flight bookings, updates, and check-ins
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Configuration
+        Parameters:
+          - Environment
+          - NamePrefix
+      - Label:
+          default: Lex Configuration
+        Parameters:
+          - BotLocale
+          - IdleSessionTTL
+      - Label:
+          default: Lambda Configuration
+        Parameters:
+          - LambdaMemorySize
+          - LambdaTimeout
+          - LambdaS3Bucket
+          - LambdaS3Key
+      - Label:
+          default: Monitoring
+        Parameters:
+          - AlarmEmail
+    ParameterLabels:
+      Environment:
+        default: Environment Name
+      NamePrefix:
+        default: Resource Name Prefix
+      BotLocale:
+        default: Bot Locale
+      AlarmEmail:
+        default: Alarm Notification Email
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+  NamePrefix:
+    Type: String
+    Description: Prefix for all resource names
+    Default: airline
+    AllowedPattern: ^[a-z][a-z0-9-]*$
+    ConstraintDescription: Must start with a letter and contain only lowercase letters, numbers, and hyphens
+
+  BotLocale:
+    Type: String
+    Description: Lex bot locale
+    Default: en_US
+    AllowedValues:
+      - en_US
+      - en_GB
+      - en_AU
+      - es_ES
+      - fr_FR
+      - de_DE
+      - it_IT
+
+  IdleSessionTTL:
+    Type: Number
+    Description: Session idle timeout in seconds
+    Default: 300
+    MinValue: 60
+    MaxValue: 86400
+
+  LambdaMemorySize:
+    Type: Number
+    Description: Lambda function memory size in MB
+    Default: 256
+    AllowedValues:
+      - 128
+      - 256
+      - 512
+      - 1024
+      - 2048
+
+  LambdaTimeout:
+    Type: Number
+    Description: Lambda function timeout in seconds
+    Default: 30
+    MinValue: 1
+    MaxValue: 900
+
+  LambdaS3Bucket:
+    Type: String
+    Description: S3 bucket containing Lambda deployment package (optional)
+    Default: ''
+
+  LambdaS3Key:
+    Type: String
+    Description: S3 key for Lambda deployment package (optional)
+    Default: ''
+
+  AlarmEmail:
+    Type: String
+    Description: Email address for alarm notifications (optional)
+    Default: ''
+
+Resources:
+  # IAM Roles
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/iam.yaml
+      Parameters:
+        NamePrefix: !Sub '${NamePrefix}-${Environment}'
+        Environment: !Ref Environment
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-${Environment}-iam'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # DynamoDB Tables
+  DynamoDBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./nested/dynamodb.yaml
+      Parameters:
+        NamePrefix: !Sub '${NamePrefix}-${Environment}'
+        Environment: !Ref Environment
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-${Environment}-dynamodb'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Functions
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+      - DynamoDBStack
+    Properties:
+      TemplateURL: ./nested/lambda.yaml
+      Parameters:
+        NamePrefix: !Sub '${NamePrefix}-${Environment}'
+        Environment: !Ref Environment
+        LambdaRoleArn: !GetAtt IAMStack.Outputs.LambdaExecutionRoleArn
+        BookingsTableName: !GetAtt DynamoDBStack.Outputs.BookingsTableName
+        FlightsTableName: !GetAtt DynamoDBStack.Outputs.FlightsTableName
+        CheckInsTableName: !GetAtt DynamoDBStack.Outputs.CheckInsTableName
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Ref LambdaS3Key
+        MemorySize: !Ref LambdaMemorySize
+        Timeout: !Ref LambdaTimeout
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-${Environment}-lambda'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lex Bot
+  LexStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+      - LambdaStack
+    Properties:
+      TemplateURL: ./nested/lex.yaml
+      Parameters:
+        NamePrefix: !Sub '${NamePrefix}-${Environment}'
+        Environment: !Ref Environment
+        LexRoleArn: !GetAtt IAMStack.Outputs.LexServiceRoleArn
+        FulfillmentLambdaArn: !GetAtt LambdaStack.Outputs.FulfillmentFunctionArn
+        BotLocale: !Ref BotLocale
+        IdleSessionTTL: !Ref IdleSessionTTL
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-${Environment}-lex'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # CloudWatch Monitoring
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+      - LexStack
+    Properties:
+      TemplateURL: ./nested/cloudwatch.yaml
+      Parameters:
+        NamePrefix: !Sub '${NamePrefix}-${Environment}'
+        Environment: !Ref Environment
+        FulfillmentLambdaName: !GetAtt LambdaStack.Outputs.FulfillmentFunctionName
+        LexBotId: !GetAtt LexStack.Outputs.BotId
+        AlarmEmail: !Ref AlarmEmail
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-${Environment}-cloudwatch'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # API Gateway
+  ApiGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+      - LexStack
+    Properties:
+      TemplateURL: ./nested/api-gateway.yaml
+      Parameters:
+        NamePrefix: !Sub '${NamePrefix}-${Environment}'
+        Environment: !Ref Environment
+        LexBotId: !GetAtt LexStack.Outputs.BotId
+        LexBotAliasId: !GetAtt LexStack.Outputs.BotAliasId
+        ApiGatewayRoleArn: !GetAtt IAMStack.Outputs.ApiGatewayRoleArn
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-${Environment}-api'
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  LexBotId:
+    Description: Lex bot ID
+    Value: !GetAtt LexStack.Outputs.BotId
+
+  LexBotAliasId:
+    Description: Lex bot alias ID
+    Value: !GetAtt LexStack.Outputs.BotAliasId
+
+  LexBotLocale:
+    Description: Lex bot locale
+    Value: !Ref BotLocale
+
+  FulfillmentLambdaArn:
+    Description: Fulfillment Lambda function ARN
+    Value: !GetAtt LambdaStack.Outputs.FulfillmentFunctionArn
+
+  BookingsTableName:
+    Description: DynamoDB bookings table name
+    Value: !GetAtt DynamoDBStack.Outputs.BookingsTableName
+
+  FlightsTableName:
+    Description: DynamoDB flights table name
+    Value: !GetAtt DynamoDBStack.Outputs.FlightsTableName
+
+  CheckInsTableName:
+    Description: DynamoDB check-ins table name
+    Value: !GetAtt DynamoDBStack.Outputs.CheckInsTableName
+
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !GetAtt ApiGatewayStack.Outputs.ApiEndpoint
+
+  DashboardUrl:
+    Description: CloudWatch dashboard URL
+    Value: !GetAtt CloudWatchStack.Outputs.DashboardUrl
+
+  TestCommand:
+    Description: AWS CLI command to test the bot
+    Value: !Sub |
+      aws lexv2-runtime recognize-text \
+        --bot-id ${LexStack.Outputs.BotId} \
+        --bot-alias-id ${LexStack.Outputs.BotAliasId} \
+        --locale-id ${BotLocale} \
+        --session-id test-session \
+        --text "I want to book a flight"

@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DynamoDB tables for Airline Chatbot
+
+Parameters:
+  NamePrefix:
+    Type: String
+    Description: Prefix for resource names
+  Environment:
+    Type: String
+    Description: Environment name
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, 'prod']
+
+Resources:
+  # Bookings Table
+  BookingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${NamePrefix}-bookings'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: booking_reference
+          AttributeType: S
+        - AttributeName: customer_email
+          AttributeType: S
+        - AttributeName: departure_date
+          AttributeType: S
+      KeySchema:
+        - AttributeName: booking_reference
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: customer-email-index
+          KeySchema:
+            - AttributeName: customer_email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: departure-date-index
+          KeySchema:
+            - AttributeName: departure_date
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProd, true, false]
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-bookings'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Flights Table
+  FlightsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${NamePrefix}-flights'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: flight_id
+          AttributeType: S
+        - AttributeName: route
+          AttributeType: S
+        - AttributeName: departure_time
+          AttributeType: S
+      KeySchema:
+        - AttributeName: flight_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: route-departure-index
+          KeySchema:
+            - AttributeName: route
+              KeyType: HASH
+            - AttributeName: departure_time
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-flights'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # CheckIns Table
+  CheckInsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${NamePrefix}-checkins'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: checkin_id
+          AttributeType: S
+        - AttributeName: booking_reference
+          AttributeType: S
+      KeySchema:
+        - AttributeName: checkin_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: booking-reference-index
+          KeySchema:
+            - AttributeName: booking_reference
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-checkins'
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  BookingsTableName:
+    Description: Bookings table name
+    Value: !Ref BookingsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-BookingsTableName'
+
+  BookingsTableArn:
+    Description: Bookings table ARN
+    Value: !GetAtt BookingsTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-BookingsTableArn'
+
+  FlightsTableName:
+    Description: Flights table name
+    Value: !Ref FlightsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-FlightsTableName'
+
+  FlightsTableArn:
+    Description: Flights table ARN
+    Value: !GetAtt FlightsTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-FlightsTableArn'
+
+  CheckInsTableName:
+    Description: CheckIns table name
+    Value: !Ref CheckInsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckInsTableName'
+
+  CheckInsTableArn:
+    Description: CheckIns table ARN
+    Value: !GetAtt CheckInsTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckInsTableArn'

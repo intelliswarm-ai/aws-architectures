@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lambda functions for Airline Chatbot
+
+Parameters:
+  NamePrefix:
+    Type: String
+    Description: Prefix for resource names
+  Environment:
+    Type: String
+    Description: Environment name
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+  LambdaRoleArn:
+    Type: String
+    Description: Lambda execution role ARN
+  BookingsTableName:
+    Type: String
+    Description: DynamoDB bookings table name
+  FlightsTableName:
+    Type: String
+    Description: DynamoDB flights table name
+  CheckInsTableName:
+    Type: String
+    Description: DynamoDB check-ins table name
+  S3Bucket:
+    Type: String
+    Description: S3 bucket containing Lambda code
+    Default: ''
+  S3Key:
+    Type: String
+    Description: S3 key for Lambda code zip
+    Default: ''
+  MemorySize:
+    Type: Number
+    Description: Lambda memory size in MB
+    Default: 256
+    MinValue: 128
+    MaxValue: 3008
+  Timeout:
+    Type: Number
+    Description: Lambda timeout in seconds
+    Default: 30
+    MinValue: 1
+    MaxValue: 900
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, 'prod']
+  HasS3Code: !Not [!Equals [!Ref S3Bucket, '']]
+
+Resources:
+  # CloudWatch Log Group
+  FulfillmentLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${NamePrefix}-fulfillment'
+      RetentionInDays: !If [IsProd, 90, 30]
+
+  # Lambda Function for Lex Fulfillment
+  FulfillmentFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: FulfillmentLogGroup
+    Properties:
+      FunctionName: !Sub '${NamePrefix}-fulfillment'
+      Description: Lex fulfillment handler for airline chatbot
+      Runtime: python3.12
+      Handler: src.handlers.fulfillment_handler.handler
+      Role: !Ref LambdaRoleArn
+      MemorySize: !Ref MemorySize
+      Timeout: !Ref Timeout
+      Code:
+        !If
+          - HasS3Code
+          - S3Bucket: !Ref S3Bucket
+            S3Key: !Ref S3Key
+          - ZipFile: |
+              def handler(event, context):
+                  return {
+                      "sessionState": {
+                          "dialogAction": {"type": "Close"},
+                          "intent": {"name": "FallbackIntent", "state": "Fulfilled"}
+                      },
+                      "messages": [{"contentType": "PlainText", "content": "Placeholder - deploy actual code"}]
+                  }
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          BOOKINGS_TABLE: !Ref BookingsTableName
+          FLIGHTS_TABLE: !Ref FlightsTableName
+          CHECKINS_TABLE: !Ref CheckInsTableName
+          LOG_LEVEL: !If [IsProd, 'INFO', 'DEBUG']
+          POWERTOOLS_SERVICE_NAME: airline-chatbot
+          POWERTOOLS_METRICS_NAMESPACE: AirlineChatbot
+      TracingConfig:
+        Mode: Active
+      Tags:
+        - Key: Name
+          Value: !Sub '${NamePrefix}-fulfillment'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Permission for Lex
+  LexInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FulfillmentFunction
+      Action: lambda:InvokeFunction
+      Principal: lexv2.amazonaws.com
+      SourceArn: !Sub 'arn:aws:lex:${AWS::Region}:${AWS::AccountId}:bot-alias/*'
+
+Outputs:
+  FulfillmentFunctionArn:
+    Description: Fulfillment Lambda function ARN
+    Value: !GetAtt FulfillmentFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-FulfillmentFunctionArn'
+
+  FulfillmentFunctionName:
+    Description: Fulfillment Lambda function name
+    Value: !Ref FulfillmentFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-FulfillmentFunctionName'
