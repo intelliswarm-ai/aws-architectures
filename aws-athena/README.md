@@ -6,12 +6,12 @@ A high-performance analytics solution using Amazon Athena with Apache Parquet op
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                       DATA LAKE ANALYTICS PLATFORM                                   │
+│                       DATA LAKE ANALYTICS PLATFORM                                  │
 ├─────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                     │
 │   ┌──────────────────────────────────────────────────────────────────────────────┐  │
-│   │                         Data Ingestion Layer                                  │  │
-│   │                                                                               │  │
+│   │                         Data Ingestion Layer                                 │  │
+│   │                                                                              │  │
 │   │  ┌─────────────┐     ┌─────────────┐     ┌─────────────────────────────────┐ │  │
 │   │  │ Application │────▶│   Lambda    │────▶│      S3 Raw Zone                │ │  │
 │   │  │ (JSON docs) │     │  (Ingest)   │     │   s3://datalake/raw/json/       │ │  │
@@ -22,42 +22,42 @@ A high-performance analytics solution using Amazon Athena with Apache Parquet op
 │                                        │                                            │
 │                                        ▼                                            │
 │   ┌──────────────────────────────────────────────────────────────────────────────┐  │
-│   │                         ETL Processing Layer                                  │  │
-│   │                                                                               │  │
+│   │                         ETL Processing Layer                                 │  │
+│   │                                                                              │  │
 │   │  ┌─────────────────────────────────────────────────────────────────────────┐ │  │
-│   │  │                        AWS Glue                                          │ │  │
-│   │  │                                                                          │ │  │
+│   │  │                        AWS Glue                                         │ │  │
+│   │  │                                                                         │ │  │
 │   │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                  │ │  │
 │   │  │  │   Crawler   │    │  ETL Job    │    │  Crawler    │                  │ │  │
 │   │  │  │  (Raw JSON) │───▶│  JSON →     │───▶│ (Parquet)   │                  │ │  │
 │   │  │  │             │    │  Parquet    │    │             │                  │ │  │
 │   │  │  └─────────────┘    └─────────────┘    └─────────────┘                  │ │  │
-│   │  │                                                                          │ │  │
-│   │  │  Transformations:                                                        │ │  │
-│   │  │  - Convert JSON to Parquet (columnar)                                    │ │  │
-│   │  │  - Apply Snappy compression                                              │ │  │
-│   │  │  - Partition by year/month/day/hour                                      │ │  │
-│   │  │  - Schema evolution handling                                             │ │  │
-│   │  │                                                                          │ │  │
+│   │  │                                                                         │ │  │
+│   │  │  Transformations:                                                       │ │  │
+│   │  │  - Convert JSON to Parquet (columnar)                                   │ │  │
+│   │  │  - Apply Snappy compression                                             │ │  │
+│   │  │  - Partition by year/month/day/hour                                     │ │  │
+│   │  │  - Schema evolution handling                                            │ │  │
+│   │  │                                                                         │ │  │
 │   │  └─────────────────────────────────────────────────────────────────────────┘ │  │
-│   │                                        │                                      │  │
-│   │                                        ▼                                      │  │
+│   │                                        │                                     │  │
+│   │                                        ▼                                     │  │
 │   │  ┌─────────────────────────────────────────────────────────────────────────┐ │  │
-│   │  │                    S3 Processed Zone                                     │ │  │
-│   │  │              s3://datalake/processed/parquet/                            │ │  │
-│   │  │                                                                          │ │  │
-│   │  │  - Columnar format (Parquet)                                             │ │  │
-│   │  │  - Snappy compression (6x smaller)                                       │ │  │
-│   │  │  - Partitioned: year=2024/month=01/day=15/hour=10/                       │ │  │
-│   │  │  - Predicate pushdown enabled                                            │ │  │
-│   │  │                                                                          │ │  │
+│   │  │                    S3 Processed Zone                                    │ │  │
+│   │  │              s3://datalake/processed/parquet/                           │ │  │
+│   │  │                                                                         │ │  │
+│   │  │  - Columnar format (Parquet)                                            │ │  │
+│   │  │  - Snappy compression (6x smaller)                                      │ │  │
+│   │  │  - Partitioned: year=2024/month=01/day=15/hour=10/                      │ │  │
+│   │  │  - Predicate pushdown enabled                                           │ │  │
+│   │  │                                                                         │ │  │
 │   │  └─────────────────────────────────────────────────────────────────────────┘ │  │
 │   └──────────────────────────────────────────────────────────────────────────────┘  │
 │                                        │                                            │
 │                                        ▼                                            │
 │   ┌──────────────────────────────────────────────────────────────────────────────┐  │
-│   │                     Data Catalog & Security Layer                             │  │
-│   │                                                                               │  │
+│   │                     Data Catalog & Security Layer                            │  │
+│   │                                                                              │  │
 │   │  ┌─────────────────────────────────┐  ┌─────────────────────────────────────┐│  │
 │   │  │       AWS Glue Data Catalog     │  │       AWS Lake Formation            ││  │
 │   │  │                                 │  │                                     ││  │
@@ -73,32 +73,32 @@ A high-performance analytics solution using Amazon Athena with Apache Parquet op
 │                                        │                                            │
 │                                        ▼                                            │
 │   ┌──────────────────────────────────────────────────────────────────────────────┐  │
-│   │                         Analytics Layer                                       │  │
-│   │                                                                               │  │
+│   │                         Analytics Layer                                      │  │
+│   │                                                                              │  │
 │   │  ┌─────────────────────────────────────────────────────────────────────────┐ │  │
-│   │  │                       Amazon Athena                                      │ │  │
-│   │  │                                                                          │ │  │
+│   │  │                       Amazon Athena                                     │ │  │
+│   │  │                                                                         │ │  │
 │   │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                  │ │  │
 │   │  │  │   Workgroup │    │   Queries   │    │   Results   │                  │ │  │
 │   │  │  │  analytics  │    │  (Presto)   │    │   S3 bucket │                  │ │  │
 │   │  │  └─────────────┘    └─────────────┘    └─────────────┘                  │ │  │
-│   │  │                                                                          │ │  │
-│   │  │  Performance Benefits (Parquet):                                         │ │  │
-│   │  │  - 2-10x faster queries                                                  │ │  │
-│   │  │  - 90% less data scanned                                                 │ │  │
-│   │  │  - Predicate pushdown                                                    │ │  │
-│   │  │  - Column pruning                                                        │ │  │
-│   │  │                                                                          │ │  │
+│   │  │                                                                         │ │  │
+│   │  │  Performance Benefits (Parquet):                                        │ │  │
+│   │  │  - 2-10x faster queries                                                 │ │  │
+│   │  │  - 90% less data scanned                                                │ │  │
+│   │  │  - Predicate pushdown                                                   │ │  │
+│   │  │  - Column pruning                                                       │ │  │
+│   │  │                                                                         │ │  │
 │   │  └─────────────────────────────────────────────────────────────────────────┘ │  │
-│   │                                                                               │  │
+│   │                                                                              │  │
 │   │  ┌─────────────────────────────────────────────────────────────────────────┐ │  │
-│   │  │                    Data Analytics Consumers                              │ │  │
-│   │  │                                                                          │ │  │
+│   │  │                    Data Analytics Consumers                             │ │  │
+│   │  │                                                                         │ │  │
 │   │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │ │  │
 │   │  │  │  QuickSight │  │  Redshift   │  │   Jupyter   │  │    API      │     │ │  │
 │   │  │  │  Dashboards │  │  Spectrum   │  │  Notebooks  │  │  (Lambda)   │     │ │  │
 │   │  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘     │ │  │
-│   │  │                                                                          │ │  │
+│   │  │                                                                         │ │  │
 │   │  └─────────────────────────────────────────────────────────────────────────┘ │  │
 │   └──────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                     │
