@@ -73,6 +73,7 @@ A conversational AI chatbot for an airline company using Amazon Lex to handle fl
 - **Slot Validation**: Real-time validation of user inputs
 - **Context Management**: Maintain conversation state across sessions
 - **Fallback Handling**: Graceful handling of unrecognized intents
+- **Lambda Function URLs**: Direct HTTPS endpoints without API Gateway overhead
 
 ## Use Case
 
@@ -245,6 +246,30 @@ After deployment, configure channel integrations in the AWS Console:
 - Web: Use Lex Web UI or custom implementation
 - Slack: Configure Slack channel integration
 - Facebook: Set up Facebook Messenger integration
+
+### 4. Lambda Function URL
+
+Each Lambda function has a dedicated HTTPS endpoint (Function URL) for direct invocation without API Gateway:
+
+```bash
+# Get the Function URL from deployment outputs
+terraform output fulfillment_function_url
+# Example: https://abc123xyz.lambda-url.eu-central-2.on.aws/
+
+# Call directly via curl
+curl -X POST https://abc123xyz.lambda-url.eu-central-2.on.aws/ \
+  -H "Content-Type: application/json" \
+  -d '{"sessionState": {"intent": {"name": "BookFlight"}}}'
+```
+
+**Benefits of Function URLs:**
+- No API Gateway configuration or costs
+- Built-in CORS support
+- Unique HTTPS endpoint per function
+- Simpler architecture for direct Lambda access
+- IAM or public authentication options
+
+**Note:** In production (`prod` environment), Function URLs use `AWS_IAM` auth. In dev/staging, they're public (`NONE`).
 
 ## Configuration
 

@@ -47,6 +47,7 @@ Parameters:
 
 Conditions:
   IsProd: !Equals [!Ref Environment, 'prod']
+  IsNotProd: !Not [!Equals [!Ref Environment, 'prod']]
   HasS3Code: !Not [!Equals [!Ref S3Bucket, '']]
 
 Resources:
@@ -109,6 +110,37 @@ Resources:
       Principal: lexv2.amazonaws.com
       SourceArn: !Sub 'arn:aws:lex:${AWS::Region}:${AWS::AccountId}:bot-alias/*'
 
+  # Lambda Function URL - Direct HTTPS endpoint without API Gateway
+  FulfillmentFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: !If [IsProd, 'AWS_IAM', 'NONE']
+      TargetFunctionArn: !Ref FulfillmentFunction
+      Cors:
+        AllowCredentials: true
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - POST
+        AllowHeaders:
+          - content-type
+          - x-amz-date
+          - authorization
+          - x-api-key
+        ExposeHeaders:
+          - x-amz-request-id
+        MaxAge: 86400
+
+  # Permission for Function URL (required when AuthType is NONE)
+  FulfillmentFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Condition: IsNotProd
+    Properties:
+      FunctionName: !Ref FulfillmentFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+
 Outputs:
   FulfillmentFunctionArn:
     Description: Fulfillment Lambda function ARN
@@ -121,3 +153,9 @@ Outputs:
     Value: !Ref FulfillmentFunction
     Export:
       Name: !Sub '${AWS::StackName}-FulfillmentFunctionName'
+
+  FulfillmentFunctionUrl:
+    Description: Lambda Function URL - direct HTTPS endpoint (no API Gateway needed)
+    Value: !GetAtt FulfillmentFunctionUrl.FunctionUrl
+    Export:
+      Name: !Sub '${AWS::StackName}-FulfillmentFunctionUrl'

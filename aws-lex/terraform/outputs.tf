@@ -18,6 +18,11 @@ output "fulfillment_lambda_arn" {
   value       = module.lambda.fulfillment_lambda_arn
 }
 
+output "fulfillment_function_url" {
+  description = "Lambda Function URL - direct HTTPS endpoint (no API Gateway needed)"
+  value       = module.lambda.fulfillment_function_url
+}
+
 output "bookings_table_name" {
   description = "DynamoDB bookings table name"
   value       = module.dynamodb.bookings_table_name

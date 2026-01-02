@@ -239,6 +239,10 @@ Outputs:
     Description: Fulfillment Lambda function ARN
     Value: !GetAtt LambdaStack.Outputs.FulfillmentFunctionArn
 
+  FulfillmentFunctionUrl:
+    Description: Lambda Function URL - direct HTTPS endpoint (no API Gateway needed)
+    Value: !GetAtt LambdaStack.Outputs.FulfillmentFunctionUrl
+
   BookingsTableName:
     Description: DynamoDB bookings table name
     Value: !GetAtt DynamoDBStack.Outputs.BookingsTableName

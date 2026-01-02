@@ -89,6 +89,21 @@ resource "aws_lambda_permission" "lex_permission" {
   source_arn    = "arn:aws:lex:${data.aws_region.current.name}:*:bot-alias/*"
 }
 
+# Lambda Function URL - Direct HTTPS endpoint without API Gateway
+resource "aws_lambda_function_url" "fulfillment_url" {
+  function_name      = aws_lambda_function.fulfillment.function_name
+  authorization_type = var.environment == "prod" ? "AWS_IAM" : "NONE"
+
+  cors {
+    allow_credentials = true
+    allow_origins     = ["*"]
+    allow_methods     = ["POST"]
+    allow_headers     = ["content-type", "x-amz-date", "authorization", "x-api-key"]
+    expose_headers    = ["x-amz-request-id"]
+    max_age           = 86400
+  }
+}
+
 # Dummy zip file for initial deployment
 resource "local_file" "dummy_lambda" {
   filename = "${path.module}/dummy.zip"
@@ -105,4 +120,9 @@ output "fulfillment_lambda_arn" {
 
 output "fulfillment_lambda_name" {
   value = aws_lambda_function.fulfillment.function_name
+}
+
+output "fulfillment_function_url" {
+  description = "Lambda Function URL - direct HTTPS endpoint"
+  value       = aws_lambda_function_url.fulfillment_url.function_url
 }
