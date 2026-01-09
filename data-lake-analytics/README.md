@@ -13,7 +13,7 @@ A high-performance analytics solution using Amazon Athena with Apache Parquet op
 │   │                         Data Ingestion Layer                                 │  │
 │   │                                                                              │  │
 │   │  ┌─────────────┐     ┌─────────────┐     ┌─────────────────────────────────┐ │  │
-│   │  │ Application │────▶│   Lambda    │────▶│      S3 Raw Zone                │ │  │
+│   │  │ Application │────▶│   Lambda    │────▶│      S3 Raw Zone               │ │  │
 │   │  │ (JSON docs) │     │  (Ingest)   │     │   s3://datalake/raw/json/       │ │  │
 │   │  └─────────────┘     └─────────────┘     │   - Partitioned by date         │ │  │
 │   │                                          │   - Hundreds of files/hour      │ │  │
@@ -29,7 +29,7 @@ A high-performance analytics solution using Amazon Athena with Apache Parquet op
 │   │  │                                                                         │ │  │
 │   │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                  │ │  │
 │   │  │  │   Crawler   │    │  ETL Job    │    │  Crawler    │                  │ │  │
-│   │  │  │  (Raw JSON) │───▶│  JSON →     │───▶│ (Parquet)   │                  │ │  │
+│   │  │  │  (Raw JSON) │───▶│  JSON →     │───▶│ (Parquet)   │                 │ │  │
 │   │  │  │             │    │  Parquet    │    │             │                  │ │  │
 │   │  │  └─────────────┘    └─────────────┘    └─────────────┘                  │ │  │
 │   │  │                                                                         │ │  │
