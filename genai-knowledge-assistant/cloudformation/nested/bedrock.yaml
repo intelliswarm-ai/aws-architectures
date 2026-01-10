@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Bedrock resources for GenAI Knowledge Assistant
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project name for resource naming
+
+  Environment:
+    Type: String
+    Description: Deployment environment
+
+  DocumentsBucketArn:
+    Type: String
+    Description: ARN of the documents S3 bucket
+
+  OpenSearchCollectionArn:
+    Type: String
+    Description: ARN of the OpenSearch Serverless collection
+
+  KnowledgeBaseRoleArn:
+    Type: String
+    Description: ARN of the Knowledge Base IAM role
+
+  AgentRoleArn:
+    Type: String
+    Description: ARN of the Agent IAM role
+
+  EmbeddingModelId:
+    Type: String
+    Default: amazon.titan-embed-text-v2:0
+    Description: Embedding model ID
+
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-5-sonnet-20241022-v2:0
+    Description: Foundation model ID for agent
+
+  VectorDimension:
+    Type: Number
+    Default: 1024
+    Description: Vector dimension for embeddings
+
+Resources:
+  # Knowledge Base
+  KnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-kb'
+      Description: Knowledge base for enterprise documents
+      RoleArn: !Ref KnowledgeBaseRoleArn
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingModelId}'
+      StorageConfiguration:
+        Type: OPENSEARCH_SERVERLESS
+        OpensearchServerlessConfiguration:
+          CollectionArn: !Ref OpenSearchCollectionArn
+          VectorIndexName: !Sub '${ProjectName}-${Environment}-index'
+          FieldMapping:
+            VectorField: embedding
+            TextField: text
+            MetadataField: metadata
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # Data Source for Knowledge Base
+  KnowledgeBaseDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      KnowledgeBaseId: !Ref KnowledgeBase
+      Name: !Sub '${ProjectName}-${Environment}-s3-source'
+      Description: S3 data source for documents
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Ref DocumentsBucketArn
+          InclusionPrefixes:
+            - documents/
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: FIXED_SIZE
+          FixedSizeChunkingConfiguration:
+            MaxTokens: 300
+            OverlapPercentage: 20
+
+  # Bedrock Agent
+  BedrockAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: !Sub '${ProjectName}-${Environment}-agent'
+      Description: Knowledge assistant agent for enterprise Q&A
+      AgentResourceRoleArn: !Ref AgentRoleArn
+      FoundationModel: !Ref BedrockModelId
+      IdleSessionTTLInSeconds: 600
+      Instruction: |
+        You are a helpful knowledge assistant. Your role is to answer questions based on
+        the documents in the knowledge base. Follow these guidelines:
+
+        1. Base your answers on the information retrieved from the knowledge base
+        2. If you cannot find relevant information, say so clearly
+        3. Cite your sources when possible
+        4. Be concise but thorough in your responses
+        5. If asked about topics outside the knowledge base, politely redirect
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # Agent Alias
+  AgentAlias:
+    Type: AWS::Bedrock::AgentAlias
+    DependsOn: BedrockAgent
+    Properties:
+      AgentId: !GetAtt BedrockAgent.AgentId
+      AgentAliasName: !Sub '${ProjectName}-${Environment}-alias'
+      Description: Production alias for the agent
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+Outputs:
+  KnowledgeBaseId:
+    Description: Bedrock Knowledge Base ID
+    Value: !Ref KnowledgeBase
+
+  KnowledgeBaseArn:
+    Description: Bedrock Knowledge Base ARN
+    Value: !GetAtt KnowledgeBase.KnowledgeBaseArn
+
+  DataSourceId:
+    Description: Knowledge Base Data Source ID
+    Value: !GetAtt KnowledgeBaseDataSource.DataSourceId
+
+  AgentId:
+    Description: Bedrock Agent ID
+    Value: !GetAtt BedrockAgent.AgentId
+
+  AgentArn:
+    Description: Bedrock Agent ARN
+    Value: !GetAtt BedrockAgent.AgentArn
+
+  AgentAliasId:
+    Description: Bedrock Agent Alias ID
+    Value: !GetAtt AgentAlias.AgentAliasId

@@ -17,6 +17,7 @@ A collection of AWS architectures demonstrating best practices for cloud-native 
 | [data-lake-analytics](./data-lake-analytics) | Data Lake Analytics Platform | Python 3.12 | Athena, Glue, Lake Formation, S3 | [docs](./data-lake-analytics/docs/BUSINESS_LOGIC.md) |
 | [hybrid-enterprise-app](./hybrid-enterprise-app) | Hybrid Enterprise Inventory System | Java 21 | Elastic Beanstalk, VPN Gateway, S3, CloudWatch | [docs](./hybrid-enterprise-app/docs/BUSINESS_LOGIC.md) |
 | [emr-fraud-detection](./emr-fraud-detection) | ML Fraud Detection with Spark | Python 3.12 | EMR, Spark MLlib, Kinesis, Step Functions, DynamoDB | [docs](./emr-fraud-detection/docs/BUSINESS_LOGIC.md) |
+| [genai-knowledge-assistant](./genai-knowledge-assistant) | RAG Knowledge Base Assistant | Python 3.12 | Bedrock (Claude, Titan), Knowledge Bases, Agents, OpenSearch Serverless | [docs](./genai-knowledge-assistant/docs/BUSINESS_LOGIC.md) |
 
 ---
 
@@ -28,7 +29,7 @@ Find projects by AWS service for quick navigation:
 
 | Service | Projects |
 |---------|----------|
-| **Lambda** | [serverless-api](./serverless-api), [document-processing](./document-processing), [multi-tenant-saas](./multi-tenant-saas), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [banking-transactions](./banking-transactions), [call-center-analytics](./call-center-analytics), [conversational-ai](./conversational-ai), [data-lake-analytics](./data-lake-analytics), [emr-fraud-detection](./emr-fraud-detection) |
+| **Lambda** | [serverless-api](./serverless-api), [document-processing](./document-processing), [multi-tenant-saas](./multi-tenant-saas), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [banking-transactions](./banking-transactions), [call-center-analytics](./call-center-analytics), [conversational-ai](./conversational-ai), [data-lake-analytics](./data-lake-analytics), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant) |
 | **EMR (Spark)** | [emr-fraud-detection](./emr-fraud-detection) |
 | **Elastic Beanstalk** | [hybrid-enterprise-app](./hybrid-enterprise-app) |
 | **EC2 Auto Scaling** | [banking-transactions](./banking-transactions) |
@@ -48,15 +49,18 @@ Find projects by AWS service for quick navigation:
 
 | Service | Projects |
 |---------|----------|
-| **DynamoDB** | [serverless-api](./serverless-api), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [banking-transactions](./banking-transactions), [conversational-ai](./conversational-ai), [emr-fraud-detection](./emr-fraud-detection) |
-| **S3** | [document-processing](./document-processing), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [call-center-analytics](./call-center-analytics), [data-lake-analytics](./data-lake-analytics), [hybrid-enterprise-app](./hybrid-enterprise-app), [emr-fraud-detection](./emr-fraud-detection) |
-| **OpenSearch** | [call-center-analytics](./call-center-analytics) |
+| **DynamoDB** | [serverless-api](./serverless-api), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [banking-transactions](./banking-transactions), [conversational-ai](./conversational-ai), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant) |
+| **S3** | [document-processing](./document-processing), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [call-center-analytics](./call-center-analytics), [data-lake-analytics](./data-lake-analytics), [hybrid-enterprise-app](./hybrid-enterprise-app), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant) |
+| **OpenSearch** | [call-center-analytics](./call-center-analytics), [genai-knowledge-assistant](./genai-knowledge-assistant) |
 
 ### AI/ML Services
 
 | Service | Projects |
 |---------|----------|
-| **Bedrock (Claude)** | [document-processing](./document-processing), [multi-tenant-saas](./multi-tenant-saas) |
+| **Bedrock (Claude)** | [document-processing](./document-processing), [multi-tenant-saas](./multi-tenant-saas), [genai-knowledge-assistant](./genai-knowledge-assistant) |
+| **Bedrock Knowledge Bases** | [genai-knowledge-assistant](./genai-knowledge-assistant) |
+| **Bedrock Agents** | [genai-knowledge-assistant](./genai-knowledge-assistant) |
+| **Bedrock Titan Embeddings** | [genai-knowledge-assistant](./genai-knowledge-assistant) |
 | **Comprehend** | [document-processing](./document-processing), [call-center-analytics](./call-center-analytics) |
 | **Lex V2** | [conversational-ai](./conversational-ai) |
 | **SageMaker** | [document-processing](./document-processing) |
@@ -87,7 +91,7 @@ Find projects by AWS service for quick navigation:
 
 | Service | Projects |
 |---------|----------|
-| **API Gateway** | [banking-transactions](./banking-transactions), [call-center-analytics](./call-center-analytics), [conversational-ai](./conversational-ai), [emr-fraud-detection](./emr-fraud-detection) |
+| **API Gateway** | [banking-transactions](./banking-transactions), [call-center-analytics](./call-center-analytics), [conversational-ai](./conversational-ai), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant) |
 | **VPC** | [multi-tenant-saas](./multi-tenant-saas), [emr-fraud-detection](./emr-fraud-detection) |
 | **VPN Gateway** | [hybrid-enterprise-app](./hybrid-enterprise-app) |
 
@@ -529,6 +533,50 @@ cd emr-fraud-detection
 
 ---
 
+## genai-knowledge-assistant
+
+**RAG-Powered Enterprise Knowledge Assistant** - An intelligent Q&A system using Amazon Bedrock Knowledge Bases and Agents for retrieval-augmented generation over enterprise documents.
+
+### Use Case
+Enterprises building intelligent assistants to answer questions based on internal documentation, policies, and knowledge bases. The system provides grounded, accurate answers with source citations using RAG (Retrieval-Augmented Generation).
+
+### Architecture Highlights
+- **Amazon Bedrock Knowledge Bases** managed document ingestion and semantic search
+- **Amazon Bedrock Agents** autonomous agents with multi-turn conversations
+- **OpenSearch Serverless** vector store for embedding storage and retrieval
+- **RAG Pipeline** query embedding → vector search → context assembly → LLM generation
+- **Document Processing** automatic chunking, embedding, and indexing
+- **Citation Support** responses include source attribution
+
+### Tech Stack
+- Python 3.12 with type hints
+- Pydantic for data validation
+- AWS Lambda Powertools (logging, tracing, metrics)
+- Claude 3.5 Sonnet for response generation
+- Titan Embeddings V2 for 1024-dimension vectors
+- Terraform modular infrastructure (8 modules)
+- CloudFormation nested stacks (8 templates)
+- SAM template for rapid deployment
+
+### Key Features
+- **Semantic Search** vector similarity search with configurable top-k
+- **Hybrid Retrieval** combine semantic and keyword search
+- **Bedrock Agents** autonomous reasoning with tool use
+- **Session Memory** multi-turn conversation context
+- **Document Sync** scheduled and on-demand knowledge base sync
+- **Guardrails** content filtering and safety controls
+
+### Quick Start
+```bash
+cd genai-knowledge-assistant
+./scripts/build.sh
+./scripts/deploy.sh -e dev
+```
+
+[View full documentation](./genai-knowledge-assistant/README.md) | [Business Logic](./genai-knowledge-assistant/docs/BUSINESS_LOGIC.md)
+
+---
+
 ## Common Patterns
 
 All projects demonstrate:
@@ -567,7 +615,7 @@ All projects demonstrate:
 - Java 21 (Amazon Corretto recommended)
 - Maven 3.9+
 
-### document-processing / multi-tenant-saas / fleet-tracking / messaging-platform / banking-transactions / call-center-analytics / conversational-ai / data-lake-analytics / emr-fraud-detection (Python)
+### document-processing / multi-tenant-saas / fleet-tracking / messaging-platform / banking-transactions / call-center-analytics / conversational-ai / data-lake-analytics / emr-fraud-detection / genai-knowledge-assistant (Python)
 - Python 3.12+
 - pip or uv for package management
 
@@ -629,6 +677,9 @@ Most projects use serverless, pay-per-use services. The hybrid-enterprise-app pr
 | Pinpoint | 100 SMS/month | $0.00645/SMS (US) |
 | Comprehend | None | $0.0001/unit (sentiment) |
 | OpenSearch | None | ~$0.036/hour (t3.small) |
+| OpenSearch Serverless | None | $0.24/OCU-hour (~$350/mo min) |
+| Bedrock Claude 3.5 | None | $3/1M input, $15/1M output tokens |
+| Bedrock Titan Embeddings | None | $0.02/1M tokens |
 | Lex | None | $0.004/speech, $0.00075/text |
 | Athena | None | $5/TB scanned |
 | Glue ETL | None | $0.44/DPU-hour |
@@ -732,13 +783,25 @@ aws-prorotypes/
 │   ├── docs/                      # Business logic & cost simulation
 │   ├── scripts/                   # Build/deploy scripts
 │   └── README.md
-└── emr-fraud-detection/           # ML Fraud Detection with Spark
+├── emr-fraud-detection/           # ML Fraud Detection with Spark
+│   ├── src/                       # Python Lambda source
+│   ├── spark/                     # PySpark jobs and utilities
+│   │   ├── jobs/                  # Feature engineering, training, scoring
+│   │   └── utils/                 # Spark session and feature utilities
+│   ├── terraform/                 # Terraform infrastructure (11 modules)
+│   ├── cloudformation/            # CloudFormation nested stacks
+│   ├── tests/                     # Unit and integration tests
+│   ├── docs/                      # Business logic & cost simulation
+│   ├── scripts/                   # Build/deploy scripts
+│   └── README.md
+└── genai-knowledge-assistant/     # RAG Knowledge Base Assistant
     ├── src/                       # Python Lambda source
-    ├── spark/                     # PySpark jobs and utilities
-    │   ├── jobs/                  # Feature engineering, training, scoring
-    │   └── utils/                 # Spark session and feature utilities
-    ├── terraform/                 # Terraform infrastructure (11 modules)
-    ├── cloudformation/            # CloudFormation nested stacks
+    │   ├── common/                # Config, models, exceptions, clients
+    │   ├── handlers/              # API, query, ingestion, agent, sync
+    │   └── services/              # Bedrock, embedding, vector store, KB
+    ├── terraform/                 # Terraform infrastructure (8 modules)
+    ├── cloudformation/            # CloudFormation nested stacks (8 templates)
+    ├── sam/                       # SAM template and config
     ├── tests/                     # Unit and integration tests
     ├── docs/                      # Business logic & cost simulation
     ├── scripts/                   # Build/deploy scripts

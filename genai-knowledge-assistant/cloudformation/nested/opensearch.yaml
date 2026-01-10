@@ -1,0 +1,134 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: OpenSearch Serverless resources for GenAI Knowledge Assistant
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project name for resource naming
+
+  Environment:
+    Type: String
+    Description: Deployment environment
+
+  VectorDimension:
+    Type: Number
+    Default: 1024
+    Description: Dimension of embedding vectors
+
+Resources:
+  # OpenSearch Serverless Collection
+  OpenSearchCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    DependsOn:
+      - EncryptionPolicy
+      - NetworkPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}'
+      Type: VECTORSEARCH
+      Description: Vector store for knowledge base embeddings
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Encryption Policy
+  EncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-enc'
+      Type: encryption
+      Description: Encryption policy for vector collection
+      Policy: !Sub |
+        {
+          "Rules": [
+            {
+              "ResourceType": "collection",
+              "Resource": ["collection/${ProjectName}-${Environment}"]
+            }
+          ],
+          "AWSOwnedKey": true
+        }
+
+  # Network Policy (Public access for simplicity - restrict in production)
+  NetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-net'
+      Type: network
+      Description: Network policy for vector collection
+      Policy: !Sub |
+        [
+          {
+            "Description": "Public access for ${ProjectName}-${Environment}",
+            "Rules": [
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${ProjectName}-${Environment}"]
+              },
+              {
+                "ResourceType": "dashboard",
+                "Resource": ["collection/${ProjectName}-${Environment}"]
+              }
+            ],
+            "AllowFromPublic": true
+          }
+        ]
+
+  # Data Access Policy
+  DataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-access'
+      Type: data
+      Description: Data access policy for vector collection
+      Policy: !Sub |
+        [
+          {
+            "Description": "Data access for ${ProjectName}-${Environment}",
+            "Rules": [
+              {
+                "ResourceType": "index",
+                "Resource": ["index/${ProjectName}-${Environment}/*"],
+                "Permission": [
+                  "aoss:CreateIndex",
+                  "aoss:DeleteIndex",
+                  "aoss:UpdateIndex",
+                  "aoss:DescribeIndex",
+                  "aoss:ReadDocument",
+                  "aoss:WriteDocument"
+                ]
+              },
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${ProjectName}-${Environment}"],
+                "Permission": [
+                  "aoss:CreateCollectionItems",
+                  "aoss:DeleteCollectionItems",
+                  "aoss:UpdateCollectionItems",
+                  "aoss:DescribeCollectionItems"
+                ]
+              }
+            ],
+            "Principal": [
+              "arn:aws:iam::${AWS::AccountId}:root"
+            ]
+          }
+        ]
+
+Outputs:
+  CollectionId:
+    Description: OpenSearch Serverless Collection ID
+    Value: !Ref OpenSearchCollection
+
+  CollectionArn:
+    Description: OpenSearch Serverless Collection ARN
+    Value: !GetAtt OpenSearchCollection.Arn
+
+  CollectionEndpoint:
+    Description: OpenSearch Serverless Collection Endpoint
+    Value: !GetAtt OpenSearchCollection.CollectionEndpoint
+
+  DashboardEndpoint:
+    Description: OpenSearch Serverless Dashboard Endpoint
+    Value: !GetAtt OpenSearchCollection.DashboardEndpoint

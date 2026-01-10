@@ -1,0 +1,391 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  GenAI Knowledge Assistant - RAG-powered enterprise knowledge management
+  using Amazon Bedrock, Knowledge Bases, and Agents.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: genai-assistant
+    Description: Project name used for resource naming
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment
+
+  # Bedrock Configuration
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-5-sonnet-20241022-v2:0
+    Description: Bedrock model ID for text generation
+
+  EmbeddingModelId:
+    Type: String
+    Default: amazon.titan-embed-text-v2:0
+    Description: Bedrock model ID for embeddings
+
+  VectorDimension:
+    Type: Number
+    Default: 1024
+    Description: Dimension of embedding vectors
+
+  # RAG Configuration
+  ChunkSize:
+    Type: Number
+    Default: 1000
+    Description: Document chunk size in characters
+
+  ChunkOverlap:
+    Type: Number
+    Default: 200
+    Description: Overlap between chunks in characters
+
+  RetrievalTopK:
+    Type: Number
+    Default: 5
+    Description: Number of chunks to retrieve
+
+  ScoreThreshold:
+    Type: String
+    Default: '0.7'
+    Description: Minimum similarity score threshold
+
+  # Lambda Configuration
+  LambdaMemorySize:
+    Type: Number
+    Default: 1024
+    AllowedValues:
+      - 512
+      - 1024
+      - 2048
+      - 3008
+    Description: Lambda memory size in MB
+
+  LambdaTimeout:
+    Type: Number
+    Default: 300
+    Description: Lambda timeout in seconds
+
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues:
+      - 7
+      - 14
+      - 30
+      - 60
+      - 90
+    Description: CloudWatch log retention in days
+
+  # API Gateway
+  ApiThrottlingRateLimit:
+    Type: Number
+    Default: 100
+    Description: API Gateway rate limit per second
+
+  ApiThrottlingBurstLimit:
+    Type: Number
+    Default: 200
+    Description: API Gateway burst limit
+
+  # Feature Flags
+  EnableBedrock:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable Bedrock Knowledge Base and Agent
+
+  EnableXRay:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable X-Ray tracing
+
+  # Nested Stack S3 Bucket
+  TemplatesBucket:
+    Type: String
+    Description: S3 bucket containing nested stack templates
+
+  TemplatesPrefix:
+    Type: String
+    Default: cloudformation/nested
+    Description: S3 prefix for nested stack templates
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Project Configuration
+        Parameters:
+          - ProjectName
+          - Environment
+      - Label:
+          default: Bedrock Configuration
+        Parameters:
+          - BedrockModelId
+          - EmbeddingModelId
+          - VectorDimension
+      - Label:
+          default: RAG Configuration
+        Parameters:
+          - ChunkSize
+          - ChunkOverlap
+          - RetrievalTopK
+          - ScoreThreshold
+      - Label:
+          default: Lambda Configuration
+        Parameters:
+          - LambdaMemorySize
+          - LambdaTimeout
+          - LogRetentionDays
+      - Label:
+          default: API Gateway Configuration
+        Parameters:
+          - ApiThrottlingRateLimit
+          - ApiThrottlingBurstLimit
+      - Label:
+          default: Feature Flags
+        Parameters:
+          - EnableBedrock
+          - EnableXRay
+      - Label:
+          default: Template Location
+        Parameters:
+          - TemplatesBucket
+          - TemplatesPrefix
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'prod']
+  EnableBedrockResources: !Equals [!Ref EnableBedrock, 'true']
+  EnableXRayTracing: !Equals [!Ref EnableXRay, 'true']
+
+Resources:
+  # S3 Stack
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/s3.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # DynamoDB Stack
+  DynamoDBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/dynamodb.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # OpenSearch Stack
+  OpenSearchStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/opensearch.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        VectorDimension: !Ref VectorDimension
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Stack
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - S3Stack
+      - DynamoDBStack
+      - OpenSearchStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/iam.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        DocumentsBucketArn: !GetAtt S3Stack.Outputs.DocumentsBucketArn
+        DocumentsTableArn: !GetAtt DynamoDBStack.Outputs.DocumentsTableArn
+        ConversationsTableArn: !GetAtt DynamoDBStack.Outputs.ConversationsTableArn
+        OpenSearchCollectionArn: !GetAtt OpenSearchStack.Outputs.CollectionArn
+        BedrockModelId: !Ref BedrockModelId
+        EmbeddingModelId: !Ref EmbeddingModelId
+        EnableXRay: !Ref EnableXRay
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Stack
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/lambda.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        LambdaRoleArn: !GetAtt IAMStack.Outputs.LambdaRoleArn
+        DocumentsBucketName: !GetAtt S3Stack.Outputs.DocumentsBucketName
+        DocumentsTableName: !GetAtt DynamoDBStack.Outputs.DocumentsTableName
+        ConversationsTableName: !GetAtt DynamoDBStack.Outputs.ConversationsTableName
+        OpenSearchEndpoint: !GetAtt OpenSearchStack.Outputs.CollectionEndpoint
+        BedrockModelId: !Ref BedrockModelId
+        EmbeddingModelId: !Ref EmbeddingModelId
+        ChunkSize: !Ref ChunkSize
+        ChunkOverlap: !Ref ChunkOverlap
+        RetrievalTopK: !Ref RetrievalTopK
+        ScoreThreshold: !Ref ScoreThreshold
+        LambdaMemorySize: !Ref LambdaMemorySize
+        LambdaTimeout: !Ref LambdaTimeout
+        LogRetentionDays: !Ref LogRetentionDays
+        EnableXRay: !Ref EnableXRay
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # API Gateway Stack
+  APIGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/api-gateway.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        ApiHandlerArn: !GetAtt LambdaStack.Outputs.ApiHandlerArn
+        ApiHandlerName: !GetAtt LambdaStack.Outputs.ApiHandlerName
+        ThrottlingRateLimit: !Ref ApiThrottlingRateLimit
+        ThrottlingBurstLimit: !Ref ApiThrottlingBurstLimit
+        EnableXRay: !Ref EnableXRay
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Bedrock Stack (conditional)
+  BedrockStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: EnableBedrockResources
+    DependsOn:
+      - IAMStack
+      - S3Stack
+      - OpenSearchStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/bedrock.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        DocumentsBucketArn: !GetAtt S3Stack.Outputs.DocumentsBucketArn
+        OpenSearchCollectionArn: !GetAtt OpenSearchStack.Outputs.CollectionArn
+        KnowledgeBaseRoleArn: !GetAtt IAMStack.Outputs.KnowledgeBaseRoleArn
+        AgentRoleArn: !GetAtt IAMStack.Outputs.AgentRoleArn
+        EmbeddingModelId: !Ref EmbeddingModelId
+        BedrockModelId: !Ref BedrockModelId
+        VectorDimension: !Ref VectorDimension
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # CloudWatch Stack
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+      - APIGatewayStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/${TemplatesPrefix}/cloudwatch.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        ApiHandlerName: !GetAtt LambdaStack.Outputs.ApiHandlerName
+        QueryHandlerName: !GetAtt LambdaStack.Outputs.QueryHandlerName
+        IngestionHandlerName: !GetAtt LambdaStack.Outputs.IngestionHandlerName
+        AgentHandlerName: !GetAtt LambdaStack.Outputs.AgentHandlerName
+        SyncHandlerName: !GetAtt LambdaStack.Outputs.SyncHandlerName
+        ApiGatewayId: !GetAtt APIGatewayStack.Outputs.ApiId
+        ApiGatewayStageName: !GetAtt APIGatewayStack.Outputs.StageName
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !GetAtt APIGatewayStack.Outputs.ApiEndpoint
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-api-endpoint'
+
+  DocumentsBucketName:
+    Description: S3 bucket for documents
+    Value: !GetAtt S3Stack.Outputs.DocumentsBucketName
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-documents-bucket'
+
+  DocumentsTableName:
+    Description: DynamoDB table for document metadata
+    Value: !GetAtt DynamoDBStack.Outputs.DocumentsTableName
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-documents-table'
+
+  ConversationsTableName:
+    Description: DynamoDB table for conversations
+    Value: !GetAtt DynamoDBStack.Outputs.ConversationsTableName
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-conversations-table'
+
+  OpenSearchEndpoint:
+    Description: OpenSearch Serverless collection endpoint
+    Value: !GetAtt OpenSearchStack.Outputs.CollectionEndpoint
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-opensearch-endpoint'
+
+  KnowledgeBaseId:
+    Description: Bedrock Knowledge Base ID
+    Condition: EnableBedrockResources
+    Value: !GetAtt BedrockStack.Outputs.KnowledgeBaseId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-knowledge-base-id'
+
+  AgentId:
+    Description: Bedrock Agent ID
+    Condition: EnableBedrockResources
+    Value: !GetAtt BedrockStack.Outputs.AgentId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-agent-id'
+
+  DashboardUrl:
+    Description: CloudWatch Dashboard URL
+    Value: !GetAtt CloudWatchStack.Outputs.DashboardUrl
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-dashboard-url'

@@ -1,0 +1,332 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lambda resources for GenAI Knowledge Assistant
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project name for resource naming
+
+  Environment:
+    Type: String
+    Description: Deployment environment
+
+  LambdaRoleArn:
+    Type: String
+    Description: ARN of the Lambda execution role
+
+  DocumentsBucketName:
+    Type: String
+    Description: Name of the documents S3 bucket
+
+  DocumentsTableName:
+    Type: String
+    Description: Name of the documents DynamoDB table
+
+  ConversationsTableName:
+    Type: String
+    Description: Name of the conversations DynamoDB table
+
+  OpenSearchEndpoint:
+    Type: String
+    Description: OpenSearch Serverless collection endpoint
+
+  BedrockModelId:
+    Type: String
+    Description: Bedrock model ID for inference
+
+  EmbeddingModelId:
+    Type: String
+    Description: Bedrock model ID for embeddings
+
+  ChunkSize:
+    Type: Number
+    Description: Document chunk size
+
+  ChunkOverlap:
+    Type: Number
+    Description: Chunk overlap size
+
+  RetrievalTopK:
+    Type: Number
+    Description: Number of chunks to retrieve
+
+  ScoreThreshold:
+    Type: String
+    Description: Minimum similarity score
+
+  LambdaMemorySize:
+    Type: Number
+    Description: Lambda memory size in MB
+
+  LambdaTimeout:
+    Type: Number
+    Description: Lambda timeout in seconds
+
+  LogRetentionDays:
+    Type: Number
+    Description: CloudWatch log retention days
+
+  EnableXRay:
+    Type: String
+    Description: Enable X-Ray tracing
+
+Conditions:
+  EnableXRayTracing: !Equals [!Ref EnableXRay, 'true']
+
+Resources:
+  # API Handler
+  ApiHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-api-handler'
+      Runtime: python3.12
+      Handler: src.handlers.api_handler.handler
+      Role: !Ref LambdaRoleArn
+      MemorySize: !Ref LambdaMemorySize
+      Timeout: !Ref LambdaTimeout
+      Architectures:
+        - arm64
+      TracingConfig:
+        Mode: !If [EnableXRayTracing, Active, PassThrough]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          PROJECT_NAME: !Ref ProjectName
+          DOCUMENTS_BUCKET: !Ref DocumentsBucketName
+          DOCUMENTS_TABLE: !Ref DocumentsTableName
+          CONVERSATIONS_TABLE: !Ref ConversationsTableName
+          OPENSEARCH_ENDPOINT: !Ref OpenSearchEndpoint
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          EMBEDDING_MODEL_ID: !Ref EmbeddingModelId
+          RETRIEVAL_TOP_K: !Ref RetrievalTopK
+          SCORE_THRESHOLD: !Ref ScoreThreshold
+          POWERTOOLS_SERVICE_NAME: !Sub '${ProjectName}-api'
+          POWERTOOLS_LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ApiHandler}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  # Query Handler
+  QueryHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-query-handler'
+      Runtime: python3.12
+      Handler: src.handlers.query_handler.handler
+      Role: !Ref LambdaRoleArn
+      MemorySize: !Ref LambdaMemorySize
+      Timeout: !Ref LambdaTimeout
+      Architectures:
+        - arm64
+      TracingConfig:
+        Mode: !If [EnableXRayTracing, Active, PassThrough]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          PROJECT_NAME: !Ref ProjectName
+          DOCUMENTS_TABLE: !Ref DocumentsTableName
+          CONVERSATIONS_TABLE: !Ref ConversationsTableName
+          OPENSEARCH_ENDPOINT: !Ref OpenSearchEndpoint
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          EMBEDDING_MODEL_ID: !Ref EmbeddingModelId
+          RETRIEVAL_TOP_K: !Ref RetrievalTopK
+          SCORE_THRESHOLD: !Ref ScoreThreshold
+          CHUNK_SIZE: !Ref ChunkSize
+          CHUNK_OVERLAP: !Ref ChunkOverlap
+          POWERTOOLS_SERVICE_NAME: !Sub '${ProjectName}-query'
+          POWERTOOLS_LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  QueryHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${QueryHandler}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  # Ingestion Handler
+  IngestionHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-ingestion-handler'
+      Runtime: python3.12
+      Handler: src.handlers.ingestion_handler.handler
+      Role: !Ref LambdaRoleArn
+      MemorySize: !Ref LambdaMemorySize
+      Timeout: !Ref LambdaTimeout
+      Architectures:
+        - arm64
+      TracingConfig:
+        Mode: !If [EnableXRayTracing, Active, PassThrough]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          PROJECT_NAME: !Ref ProjectName
+          DOCUMENTS_BUCKET: !Ref DocumentsBucketName
+          DOCUMENTS_TABLE: !Ref DocumentsTableName
+          OPENSEARCH_ENDPOINT: !Ref OpenSearchEndpoint
+          EMBEDDING_MODEL_ID: !Ref EmbeddingModelId
+          CHUNK_SIZE: !Ref ChunkSize
+          CHUNK_OVERLAP: !Ref ChunkOverlap
+          POWERTOOLS_SERVICE_NAME: !Sub '${ProjectName}-ingestion'
+          POWERTOOLS_LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  IngestionHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${IngestionHandler}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  # S3 Event Permission for Ingestion Handler
+  IngestionHandlerS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IngestionHandler
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub 'arn:aws:s3:::${DocumentsBucketName}'
+
+  # Agent Handler
+  AgentHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-agent-handler'
+      Runtime: python3.12
+      Handler: src.handlers.agent_handler.handler
+      Role: !Ref LambdaRoleArn
+      MemorySize: !Ref LambdaMemorySize
+      Timeout: !Ref LambdaTimeout
+      Architectures:
+        - arm64
+      TracingConfig:
+        Mode: !If [EnableXRayTracing, Active, PassThrough]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          PROJECT_NAME: !Ref ProjectName
+          CONVERSATIONS_TABLE: !Ref ConversationsTableName
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          POWERTOOLS_SERVICE_NAME: !Sub '${ProjectName}-agent'
+          POWERTOOLS_LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  AgentHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AgentHandler}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  # Sync Handler
+  SyncHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-sync-handler'
+      Runtime: python3.12
+      Handler: src.handlers.sync_handler.handler
+      Role: !Ref LambdaRoleArn
+      MemorySize: 512
+      Timeout: 900
+      Architectures:
+        - arm64
+      TracingConfig:
+        Mode: !If [EnableXRayTracing, Active, PassThrough]
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          PROJECT_NAME: !Ref ProjectName
+          DOCUMENTS_TABLE: !Ref DocumentsTableName
+          POWERTOOLS_SERVICE_NAME: !Sub '${ProjectName}-sync'
+          POWERTOOLS_LOG_LEVEL: INFO
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  SyncHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${SyncHandler}'
+      RetentionInDays: !Ref LogRetentionDays
+
+  # EventBridge Rule for Scheduled Sync
+  SyncScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-sync-schedule'
+      Description: Daily sync of knowledge base
+      ScheduleExpression: 'rate(1 day)'
+      State: ENABLED
+      Targets:
+        - Id: SyncHandlerTarget
+          Arn: !GetAtt SyncHandler.Arn
+
+  SyncSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SyncHandler
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SyncScheduleRule.Arn
+
+Outputs:
+  ApiHandlerArn:
+    Description: ARN of the API Handler
+    Value: !GetAtt ApiHandler.Arn
+
+  ApiHandlerName:
+    Description: Name of the API Handler
+    Value: !Ref ApiHandler
+
+  QueryHandlerArn:
+    Description: ARN of the Query Handler
+    Value: !GetAtt QueryHandler.Arn
+
+  QueryHandlerName:
+    Description: Name of the Query Handler
+    Value: !Ref QueryHandler
+
+  IngestionHandlerArn:
+    Description: ARN of the Ingestion Handler
+    Value: !GetAtt IngestionHandler.Arn
+
+  IngestionHandlerName:
+    Description: Name of the Ingestion Handler
+    Value: !Ref IngestionHandler
+
+  AgentHandlerArn:
+    Description: ARN of the Agent Handler
+    Value: !GetAtt AgentHandler.Arn
+
+  AgentHandlerName:
+    Description: Name of the Agent Handler
+    Value: !Ref AgentHandler
+
+  SyncHandlerArn:
+    Description: ARN of the Sync Handler
+    Value: !GetAtt SyncHandler.Arn
+
+  SyncHandlerName:
+    Description: Name of the Sync Handler
+    Value: !Ref SyncHandler

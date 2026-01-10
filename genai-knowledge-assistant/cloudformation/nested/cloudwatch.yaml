@@ -1,0 +1,299 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudWatch resources for GenAI Knowledge Assistant
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project name for resource naming
+
+  Environment:
+    Type: String
+    Description: Deployment environment
+
+  ApiHandlerName:
+    Type: String
+    Description: Name of the API Handler Lambda
+
+  QueryHandlerName:
+    Type: String
+    Description: Name of the Query Handler Lambda
+
+  IngestionHandlerName:
+    Type: String
+    Description: Name of the Ingestion Handler Lambda
+
+  AgentHandlerName:
+    Type: String
+    Description: Name of the Agent Handler Lambda
+
+  SyncHandlerName:
+    Type: String
+    Description: Name of the Sync Handler Lambda
+
+  ApiGatewayId:
+    Type: String
+    Description: API Gateway ID
+
+  ApiGatewayStageName:
+    Type: String
+    Description: API Gateway stage name
+
+Resources:
+  # CloudWatch Dashboard
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-${Environment}'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "text",
+              "x": 0,
+              "y": 0,
+              "width": 24,
+              "height": 1,
+              "properties": {
+                "markdown": "# GenAI Knowledge Assistant - ${Environment}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 1,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "title": "API Gateway Requests",
+                "view": "timeSeries",
+                "stacked": false,
+                "metrics": [
+                  ["AWS/ApiGateway", "Count", "ApiId", "${ApiGatewayId}", "Stage", "${ApiGatewayStageName}"]
+                ],
+                "region": "${AWS::Region}",
+                "period": 60
+              }
+            },
+            {
+              "type": "metric",
+              "x": 8,
+              "y": 1,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "title": "API Gateway Latency",
+                "view": "timeSeries",
+                "stacked": false,
+                "metrics": [
+                  ["AWS/ApiGateway", "Latency", "ApiId", "${ApiGatewayId}", "Stage", "${ApiGatewayStageName}", { "stat": "p50" }],
+                  ["...", { "stat": "p90" }],
+                  ["...", { "stat": "p99" }]
+                ],
+                "region": "${AWS::Region}",
+                "period": 60
+              }
+            },
+            {
+              "type": "metric",
+              "x": 16,
+              "y": 1,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "title": "API Gateway Errors",
+                "view": "timeSeries",
+                "stacked": false,
+                "metrics": [
+                  ["AWS/ApiGateway", "4XXError", "ApiId", "${ApiGatewayId}", "Stage", "${ApiGatewayStageName}"],
+                  [".", "5XXError", ".", ".", ".", "."]
+                ],
+                "region": "${AWS::Region}",
+                "period": 60
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 7,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Invocations",
+                "view": "timeSeries",
+                "stacked": false,
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${ApiHandlerName}"],
+                  [".", ".", ".", "${QueryHandlerName}"],
+                  [".", ".", ".", "${IngestionHandlerName}"],
+                  [".", ".", ".", "${AgentHandlerName}"],
+                  [".", ".", ".", "${SyncHandlerName}"]
+                ],
+                "region": "${AWS::Region}",
+                "period": 60
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 7,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Duration (avg)",
+                "view": "timeSeries",
+                "stacked": false,
+                "metrics": [
+                  ["AWS/Lambda", "Duration", "FunctionName", "${ApiHandlerName}", { "stat": "Average" }],
+                  [".", ".", ".", "${QueryHandlerName}", { "stat": "Average" }],
+                  [".", ".", ".", "${IngestionHandlerName}", { "stat": "Average" }],
+                  [".", ".", ".", "${AgentHandlerName}", { "stat": "Average" }]
+                ],
+                "region": "${AWS::Region}",
+                "period": 60
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 13,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Errors",
+                "view": "timeSeries",
+                "stacked": false,
+                "metrics": [
+                  ["AWS/Lambda", "Errors", "FunctionName", "${ApiHandlerName}"],
+                  [".", ".", ".", "${QueryHandlerName}"],
+                  [".", ".", ".", "${IngestionHandlerName}"],
+                  [".", ".", ".", "${AgentHandlerName}"],
+                  [".", ".", ".", "${SyncHandlerName}"]
+                ],
+                "region": "${AWS::Region}",
+                "period": 60
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 13,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Concurrent Executions",
+                "view": "timeSeries",
+                "stacked": false,
+                "metrics": [
+                  ["AWS/Lambda", "ConcurrentExecutions", "FunctionName", "${ApiHandlerName}"],
+                  [".", ".", ".", "${QueryHandlerName}"],
+                  [".", ".", ".", "${AgentHandlerName}"]
+                ],
+                "region": "${AWS::Region}",
+                "period": 60
+              }
+            }
+          ]
+        }
+
+  # Error Alarm - API Handler
+  ApiHandlerErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-api-handler-errors'
+      AlarmDescription: Alert when API handler has errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiHandlerName
+      TreatMissingData: notBreaching
+
+  # Error Alarm - Query Handler
+  QueryHandlerErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-query-handler-errors'
+      AlarmDescription: Alert when Query handler has errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref QueryHandlerName
+      TreatMissingData: notBreaching
+
+  # Duration Alarm - Query Handler
+  QueryHandlerDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-query-handler-duration'
+      AlarmDescription: Alert when Query handler duration exceeds threshold
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 25000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref QueryHandlerName
+      TreatMissingData: notBreaching
+
+  # API Gateway 5XX Alarm
+  ApiGateway5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-api-5xx-errors'
+      AlarmDescription: Alert when API Gateway returns 5XX errors
+      MetricName: 5XXError
+      Namespace: AWS/ApiGateway
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref ApiGatewayId
+        - Name: Stage
+          Value: !Ref ApiGatewayStageName
+      TreatMissingData: notBreaching
+
+  # API Gateway Latency Alarm
+  ApiGatewayLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-api-latency'
+      AlarmDescription: Alert when API Gateway latency exceeds threshold
+      MetricName: Latency
+      Namespace: AWS/ApiGateway
+      ExtendedStatistic: p90
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref ApiGatewayId
+        - Name: Stage
+          Value: !Ref ApiGatewayStageName
+      TreatMissingData: notBreaching
+
+Outputs:
+  DashboardUrl:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${ProjectName}-${Environment}'
+
+  DashboardName:
+    Description: CloudWatch Dashboard Name
+    Value: !Sub '${ProjectName}-${Environment}'
