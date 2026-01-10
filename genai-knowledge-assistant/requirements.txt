@@ -1,0 +1,27 @@
+# =============================================================================
+# Production Dependencies - GenAI Knowledge Assistant
+# =============================================================================
+
+# AWS SDK
+boto3>=1.35.0
+botocore>=1.35.0
+
+# AWS Lambda Powertools
+aws-lambda-powertools[all]>=3.3.0
+
+# Data Validation
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# HTTP Client
+httpx>=0.28.0
+
+# JSON Performance
+orjson>=3.10.0
+
+# OpenSearch
+opensearch-py>=2.4.0
+requests-aws4auth>=1.2.0
+
+# Type Hints
+typing-extensions>=4.12.0

@@ -1,0 +1,68 @@
+# =============================================================================
+# SAM CLI Configuration - GenAI Knowledge Assistant
+# =============================================================================
+
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "genai-assistant-dev"
+
+[default.build.parameters]
+cached = true
+parallel = true
+use_container = false
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND"
+confirm_changeset = true
+resolve_s3 = true
+region = "eu-central-2"
+
+[default.sync.parameters]
+watch = true
+
+[default.local_start_api.parameters]
+warm_containers = "EAGER"
+
+[default.local_start_lambda.parameters]
+warm_containers = "EAGER"
+
+# =============================================================================
+# Development Environment
+# =============================================================================
+
+[dev]
+[dev.deploy.parameters]
+stack_name = "genai-assistant-dev"
+s3_prefix = "genai-assistant-dev"
+region = "eu-central-2"
+confirm_changeset = false
+parameter_overrides = "Environment=\"dev\" ProjectName=\"genai-assistant\""
+
+# =============================================================================
+# Staging Environment
+# =============================================================================
+
+[staging]
+[staging.deploy.parameters]
+stack_name = "genai-assistant-staging"
+s3_prefix = "genai-assistant-staging"
+region = "eu-central-2"
+confirm_changeset = true
+parameter_overrides = "Environment=\"staging\" ProjectName=\"genai-assistant\""
+
+# =============================================================================
+# Production Environment
+# =============================================================================
+
+[prod]
+[prod.deploy.parameters]
+stack_name = "genai-assistant-prod"
+s3_prefix = "genai-assistant-prod"
+region = "eu-central-2"
+confirm_changeset = true
+parameter_overrides = "Environment=\"prod\" ProjectName=\"genai-assistant\""
