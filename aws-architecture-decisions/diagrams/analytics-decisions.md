@@ -25,8 +25,8 @@ flowchart TD
     Q4 -->|Simple queries| ATHENA
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
     classDef start fill:#ADD8E6,stroke:#4169E1,stroke-width:2px
 
     class Start start
@@ -51,9 +51,9 @@ flowchart TD
     PARQUET --> BENEFITS[Columnar storage<br/>Compression<br/>Predicate pushdown]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef benefit fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef benefit fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1,Q2 question
     class LF,S3_POLICIES,RAW,PARQUET service
@@ -75,9 +75,9 @@ flowchart TD
     EMR --> MANAGED[Managed clusters<br/>Full Spark ecosystem]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef feature fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef feature fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1 question
     class GLUE_STUDIO,GLUE_ETL,DATABREW,EMR service

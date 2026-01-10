@@ -22,9 +22,9 @@ flowchart TD
     ROLE_EC2 --> NEVER[❌ Never use<br/>access keys on EC2]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef never fill:#FFB6C1,stroke:#DC143C,stroke-width:2px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef never fill:#FFB6C1,stroke:#DC143C,stroke-width:2px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1,Q2,Q3 question
     class ROLE_SVC,ROLE_EC2,IAM_USER,IAM_IC,STS service
@@ -47,9 +47,9 @@ flowchart TD
     INSPECTOR --> USE_IN[CVE scanning<br/>Network exposure<br/>Container vulns]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef usecase fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef usecase fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1 question
     class GUARDDUTY,INSPECTOR,CONFIG,CLOUDTRAIL,SHIELD service
@@ -73,9 +73,9 @@ flowchart TD
     SSE_KMS --> AUDIT[Full audit via<br/>CloudTrail]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef feat fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef feat fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1,Q2 question
     class SSE_S3,SSE_KMS,SSE_KMS_CMK,SSE_C,CLIENT service
@@ -96,9 +96,9 @@ flowchart TD
     WAF --> ATTACH[Attach to:<br/>ALB, CloudFront,<br/>API Gateway]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef feat fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef feat fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1 question
     class WAF,SHIELD_STD,SHIELD_ADV,WAF_BOT service
@@ -174,9 +174,9 @@ flowchart TD
     BOUNDARY --> DESC_B[Max permissions<br/>ceiling]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef desc fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef desc fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1 question
     class SCP,BOUNDARY,IAM service

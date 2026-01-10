@@ -20,8 +20,8 @@ flowchart TD
     Q2 -->|Medical text| COMPREHEND_MED[Comprehend<br/>Medical]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
     classDef start fill:#ADD8E6,stroke:#4169E1,stroke-width:2px
 
     class Start start
@@ -43,9 +43,9 @@ flowchart TD
     BEDROCK --> MODELS[Claude, Llama,<br/>Titan, etc.]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef models fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef models fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1 question
     class BEDROCK,BEDROCK_KB,BEDROCK_AG,CODEWHISPERER service
@@ -66,9 +66,9 @@ flowchart TD
     DATABREW --> USE_DB[Visual profiling<br/>No coding required]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef use fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef use fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1 question
     class DATABREW,GLUE,EMR,GROUNDTRUTH service

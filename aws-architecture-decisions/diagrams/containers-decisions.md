@@ -19,8 +19,8 @@ flowchart TD
     Q3 -->|Managed EC2| ECS_EC2[ECS + EC2]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
     classDef start fill:#ADD8E6,stroke:#4169E1,stroke-width:2px
 
     class Start start
@@ -46,9 +46,9 @@ flowchart TD
     EC2 --> BILL_EC2[Billing: EC2 instances<br/>+ EBS]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef billing fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef billing fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1,Q2 question
     class FARGATE,EC2,FARGATE_EFS service
@@ -67,9 +67,9 @@ flowchart TD
     IRSA --> DESC[Separate service account<br/>per microservice]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef desc fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef desc fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1 question
     class IRSA,NODE service

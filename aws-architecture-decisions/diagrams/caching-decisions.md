@@ -22,8 +22,8 @@ flowchart TD
     Q3 -->|Single region| API_CACHE[API Gateway<br/>Caching]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
     classDef start fill:#ADD8E6,stroke:#4169E1,stroke-width:2px
 
     class Start start
@@ -49,9 +49,9 @@ flowchart TD
     REDIS --> FEAT_R[Rich data types<br/>Persistence<br/>Replication]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef feat fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef feat fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1,Q2 question
     class MEMCACHED,REDIS service
@@ -75,9 +75,9 @@ flowchart TD
     WT --> DESC_WT[Write: DB + Cache together<br/>Pro: Cache always current<br/>Con: Write latency]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef desc fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef desc fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1,Q2 question
     class LAZY,WT,WB,LAZY_WT service

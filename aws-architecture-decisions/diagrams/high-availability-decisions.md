@@ -19,9 +19,9 @@ flowchart TD
     ACTIVE --> COST_A[Highest Cost<br/>Full redundancy]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef cost fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef cost fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
     classDef start fill:#ADD8E6,stroke:#4169E1,stroke-width:2px
 
     class Start start
@@ -43,9 +43,9 @@ flowchart TD
     CALC_3 --> EX_3[Example: Need 4<br/>= 2 per AZ<br/>= 6 total]
 
     %% Styling
-    classDef calc fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef example fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef calc fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef example fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1 question
     class CALC_2,CALC_3 calc
@@ -65,9 +65,9 @@ flowchart TD
     READER --> NOTE[Automatically load<br/>balances read replicas]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef note fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef note fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1 question
     class CLUSTER,READER,CUSTOM service

@@ -36,10 +36,10 @@ flowchart TD
     Q8 -->|Cold/Archive| SC1[EBS sc1]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
     classDef start fill:#ADD8E6,stroke:#4169E1,stroke-width:2px
-    classDef invalid fill:#FFB6C1,stroke:#DC143C,stroke-width:2px
+    classDef invalid fill:#FFB6C1,stroke:#DC143C,stroke-width:2px,color:#000000
 
     class Start start
     class Q1,Q2,Q3,Q4,Q5,Q6,Q7,Q8 question
@@ -66,8 +66,8 @@ flowchart TD
     ARC -->|Hours OK| DEEP[Glacier Deep<br/>Archive]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Freq,IA,ARC question
     class STD,INT,STD_IA,ONE_IA,GLACIER_IR,GLACIER_FR,DEEP service
@@ -101,9 +101,9 @@ flowchart TD
     FSX_ONTAP --> USE_ONTAP[Windows + Mac + Linux<br/>Multi-protocol<br/>Storage tiering]
 
     %% Styling
-    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px
-    classDef usecase fill:#E6E6FA,stroke:#9370DB,stroke-width:1px
-    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
+    classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
+    classDef usecase fill:#E6E6FA,stroke:#9370DB,stroke-width:1px,color:#000000
+    classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
 
     class Q1 question
     class FSX_WIN,FSX_LUSTRE,FSX_ONTAP,FSX_ZFS service
