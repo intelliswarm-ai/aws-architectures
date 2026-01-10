@@ -22,7 +22,8 @@ flowchart TD
     %% Styling
     classDef service fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000000
     classDef question fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px,color:#000000
-    classDef start fill:#ADD8E6,stroke:#4169E1,stroke-width:2px
+    classDef start fill:#ADD8E6,stroke:#4169E1,stroke-width:2px,color:#000000
+    class Start start
 
     class Start start
     class Q1,Q2 question
