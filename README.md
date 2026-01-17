@@ -11,7 +11,7 @@ Created by **Theodoros Messinis**, AWS Certified Solutions Architect.
 
 ## Disclaimer
 
-This project is not officially supported by Amazon Web Services (AWS). It is a product of individual research and is intended for educational and demonstration purposes only. The architectures and code examples provided here represent personal interpretations of AWS best practices and should be reviewed and adapted according to your specific requirements before use in production environments.
+This project is not officially supported by Amazon Web Services (AWS). It is a product of individual research and is intended for educational purposes. The architectures and code examples provided here represent personal interpretations of AWS best practices and should be reviewed and adapted according to your specific requirements before use in production environments.
 
 ---
 
