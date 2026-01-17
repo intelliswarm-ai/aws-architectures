@@ -2,6 +2,12 @@
 
 A collection of AWS architectures demonstrating best practices for cloud-native and hybrid application development. Each project showcases different AWS services, patterns, and implementation approaches including serverless, PaaS, and hybrid cloud architectures.
 
+## Author
+
+Created by **Theodoros Messinis**, AWS Certified Solutions Architect. View credentials and certifications on [Credly](https://www.credly.com/users/theodoros-messinis/badges).
+
+---
+
 ## Projects
 
 | Project | Description | Language | Key AWS Services | Business Logic |
