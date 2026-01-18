@@ -13,7 +13,7 @@ Created by **Theodoros Messinis**, AWS Certified Solutions Architect.
 
 ## Disclaimer
 
-This project is not officially supported by Amazon Web Services (AWS). It is a product of individual research. The architectures and code examples provided here represent personal interpretations of AWS best practices and should be reviewed and adapted according to your specific requirements.
+This project is not officially supported by Amazon Web Services (AWS). It is a product of individual research. The architectures and code examples provided here represent personal interpretations of AWS best practices.
 
 ---
 
