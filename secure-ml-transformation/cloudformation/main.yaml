@@ -1,0 +1,268 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Secure ML Data Transformation Pipeline - Main Stack'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Environment Configuration"
+        Parameters:
+          - Environment
+          - ProjectName
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+          - VpcCidr
+          - PrivateSubnet1Cidr
+          - PrivateSubnet2Cidr
+      - Label:
+          default: "Glue Configuration"
+        Parameters:
+          - GlueWorkerType
+          - GlueNumberOfWorkers
+          - GlueJobTimeout
+      - Label:
+          default: "Security Configuration"
+        Parameters:
+          - LogRetentionDays
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment
+
+  ProjectName:
+    Type: String
+    Default: secure-ml-transform
+    Description: Project name prefix for resources
+
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for VPC
+
+  PrivateSubnet1Cidr:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for first private subnet
+
+  PrivateSubnet2Cidr:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR block for second private subnet
+
+  GlueWorkerType:
+    Type: String
+    Default: G.1X
+    AllowedValues:
+      - Standard
+      - G.1X
+      - G.2X
+    Description: Glue worker type
+
+  GlueNumberOfWorkers:
+    Type: Number
+    Default: 10
+    MinValue: 2
+    MaxValue: 100
+    Description: Number of Glue workers
+
+  GlueJobTimeout:
+    Type: Number
+    Default: 120
+    MinValue: 1
+    MaxValue: 2880
+    Description: Glue job timeout in minutes
+
+  LogRetentionDays:
+    Type: Number
+    Default: 90
+    AllowedValues:
+      - 30
+      - 60
+      - 90
+      - 180
+      - 365
+    Description: CloudWatch log retention in days
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, 'prod']
+
+Resources:
+  # ============================================================================
+  # VPC Stack
+  # ============================================================================
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested/vpc.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        VpcCidr: !Ref VpcCidr
+        PrivateSubnet1Cidr: !Ref PrivateSubnet1Cidr
+        PrivateSubnet2Cidr: !Ref PrivateSubnet2Cidr
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================================
+  # KMS Stack
+  # ============================================================================
+  KMSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested/kms.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================================
+  # S3 Stack
+  # ============================================================================
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - KMSStack
+    Properties:
+      TemplateURL: nested/s3.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        KMSKeyArn: !GetAtt KMSStack.Outputs.KMSKeyArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================================
+  # IAM Stack
+  # ============================================================================
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - S3Stack
+      - KMSStack
+    Properties:
+      TemplateURL: nested/iam.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        RawDataBucketArn: !GetAtt S3Stack.Outputs.RawDataBucketArn
+        ProcessedDataBucketArn: !GetAtt S3Stack.Outputs.ProcessedDataBucketArn
+        ScriptsBucketArn: !GetAtt S3Stack.Outputs.ScriptsBucketArn
+        KMSKeyArn: !GetAtt KMSStack.Outputs.KMSKeyArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================================
+  # CloudWatch Stack
+  # ============================================================================
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - KMSStack
+    Properties:
+      TemplateURL: nested/cloudwatch.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        LogRetentionDays: !Ref LogRetentionDays
+        KMSKeyArn: !GetAtt KMSStack.Outputs.KMSKeyArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================================
+  # Glue Stack
+  # ============================================================================
+  GlueStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - VPCStack
+      - S3Stack
+      - IAMStack
+      - CloudWatchStack
+      - KMSStack
+    Properties:
+      TemplateURL: nested/glue.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+        PrivateSubnetIds: !GetAtt VPCStack.Outputs.PrivateSubnetIds
+        SecurityGroupId: !GetAtt VPCStack.Outputs.GlueSecurityGroupId
+        GlueRoleArn: !GetAtt IAMStack.Outputs.GlueRoleArn
+        ScriptsBucket: !GetAtt S3Stack.Outputs.ScriptsBucketName
+        RawDataBucket: !GetAtt S3Stack.Outputs.RawDataBucketName
+        ProcessedDataBucket: !GetAtt S3Stack.Outputs.ProcessedDataBucketName
+        KMSKeyArn: !GetAtt KMSStack.Outputs.KMSKeyArn
+        GlueWorkerType: !Ref GlueWorkerType
+        GlueNumberOfWorkers: !Ref GlueNumberOfWorkers
+        GlueJobTimeout: !Ref GlueJobTimeout
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !GetAtt VPCStack.Outputs.VpcId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-vpc-id'
+
+  RawDataBucket:
+    Description: Raw data S3 bucket name
+    Value: !GetAtt S3Stack.Outputs.RawDataBucketName
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-raw-bucket'
+
+  ProcessedDataBucket:
+    Description: Processed data S3 bucket name
+    Value: !GetAtt S3Stack.Outputs.ProcessedDataBucketName
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-processed-bucket'
+
+  GlueJobName:
+    Description: Main Glue ETL job name
+    Value: !GetAtt GlueStack.Outputs.MainETLJobName
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-glue-job'
+
+  GlueDatabaseName:
+    Description: Glue catalog database name
+    Value: !GetAtt GlueStack.Outputs.DatabaseName
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-glue-database'
+
+  KMSKeyId:
+    Description: KMS key ID for encryption
+    Value: !GetAtt KMSStack.Outputs.KMSKeyId
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-kms-key'
+
+  AuditLogGroupName:
+    Description: CloudWatch audit log group name
+    Value: !GetAtt CloudWatchStack.Outputs.AuditLogGroupName
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-audit-logs'

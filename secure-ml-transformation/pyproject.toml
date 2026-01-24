@@ -1,0 +1,106 @@
+[project]
+name = "secure-ml-transformation"
+version = "1.0.0"
+description = "Secure ML data transformation pipeline for fraud detection with PII tokenization, statistical binning, and anomaly detection using AWS Glue in VPC-isolated environment"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "IntelliSwarm AI" }]
+keywords = [
+    "aws",
+    "glue",
+    "databrew",
+    "pyspark",
+    "fraud-detection",
+    "pii-tokenization",
+    "ml-transformation",
+    "isolation-forest",
+    "data-lineage",
+    "vpc-security",
+]
+
+dependencies = [
+    "boto3>=1.35.0",
+    "botocore>=1.35.0",
+    "aws-lambda-powertools>=3.3.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "numpy>=1.26.0",
+    "scikit-learn>=1.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.23.0",
+    "moto[glue,s3,logs,kms]>=5.0.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "black>=24.0.0",
+    "boto3-stubs[glue,s3,logs,kms]>=1.35.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "glue*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+]
+
+[tool.coverage.run]
+source = ["src", "glue"]
+branch = true
+omit = ["tests/*", "*/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ARG", # flake8-unused-arguments
+    "SIM", # flake8-simplify
+]
+ignore = ["E501", "B008", "B904"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.black]
+line-length = 120
+target-version = ["py312"]

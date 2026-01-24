@@ -1,0 +1,321 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'IAM roles and policies'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  RawDataBucketArn:
+    Type: String
+  ProcessedDataBucketArn:
+    Type: String
+  ScriptsBucketArn:
+    Type: String
+  KMSKeyArn:
+    Type: String
+
+Resources:
+  # ============================================================================
+  # Glue Service Role
+  # ============================================================================
+  GlueRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-glue-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  GlueS3Policy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-${Environment}-glue-s3'
+      Roles:
+        - !Ref GlueRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: RawDataBucketAccess
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:ListBucket'
+              - 's3:GetBucketLocation'
+            Resource:
+              - !Ref RawDataBucketArn
+              - !Sub '${RawDataBucketArn}/*'
+          - Sid: ProcessedDataBucketAccess
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:PutObject'
+              - 's3:DeleteObject'
+              - 's3:ListBucket'
+              - 's3:GetBucketLocation'
+            Resource:
+              - !Ref ProcessedDataBucketArn
+              - !Sub '${ProcessedDataBucketArn}/*'
+          - Sid: ScriptsBucketAccess
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:ListBucket'
+              - 's3:GetBucketLocation'
+            Resource:
+              - !Ref ScriptsBucketArn
+              - !Sub '${ScriptsBucketArn}/*'
+
+  GlueKMSPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-${Environment}-glue-kms'
+      Roles:
+        - !Ref GlueRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: KMSAccess
+            Effect: Allow
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+            Resource: !Ref KMSKeyArn
+
+  GlueCloudWatchPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-${Environment}-glue-cloudwatch'
+      Roles:
+        - !Ref GlueRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudWatchLogs
+            Effect: Allow
+            Action:
+              - 'logs:CreateLogGroup'
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+              - 'logs:DescribeLogStreams'
+            Resource:
+              - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/glue/*'
+          - Sid: CloudWatchMetrics
+            Effect: Allow
+            Action:
+              - 'cloudwatch:PutMetricData'
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'cloudwatch:namespace': 'Glue'
+
+  GlueNetworkPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-${Environment}-glue-network'
+      Roles:
+        - !Ref GlueRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EC2NetworkAccess
+            Effect: Allow
+            Action:
+              - 'ec2:DescribeVpcEndpoints'
+              - 'ec2:DescribeRouteTables'
+              - 'ec2:CreateNetworkInterface'
+              - 'ec2:DeleteNetworkInterface'
+              - 'ec2:DescribeNetworkInterfaces'
+              - 'ec2:DescribeSecurityGroups'
+              - 'ec2:DescribeSubnets'
+              - 'ec2:DescribeVpcAttribute'
+            Resource: '*'
+          - Sid: EC2CreateTags
+            Effect: Allow
+            Action:
+              - 'ec2:CreateTags'
+              - 'ec2:DeleteTags'
+            Resource:
+              - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*'
+            Condition:
+              ForAllValues:StringEquals:
+                'aws:TagKeys':
+                  - 'aws-glue-service-resource'
+
+  # ============================================================================
+  # Lambda Execution Role
+  # ============================================================================
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  LambdaGluePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-${Environment}-lambda-glue'
+      Roles:
+        - !Ref LambdaRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: GlueJobAccess
+            Effect: Allow
+            Action:
+              - 'glue:StartJobRun'
+              - 'glue:GetJobRun'
+              - 'glue:GetJobRuns'
+              - 'glue:BatchStopJobRun'
+              - 'glue:GetJobBookmark'
+              - 'glue:ResetJobBookmark'
+            Resource:
+              - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${ProjectName}-*'
+
+  LambdaS3Policy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-${Environment}-lambda-s3'
+      Roles:
+        - !Ref LambdaRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: S3ReadWrite
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:PutObject'
+              - 's3:ListBucket'
+            Resource:
+              - !Ref ProcessedDataBucketArn
+              - !Sub '${ProcessedDataBucketArn}/*'
+
+  LambdaKMSPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-${Environment}-lambda-kms'
+      Roles:
+        - !Ref LambdaRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: KMSAccess
+            Effect: Allow
+            Action:
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+            Resource: !Ref KMSKeyArn
+
+  # ============================================================================
+  # DataBrew Service Role
+  # ============================================================================
+  DataBrewRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-databrew-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: databrew.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSGlueDataBrewServiceRole'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  DataBrewS3Policy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-${Environment}-databrew-s3'
+      Roles:
+        - !Ref DataBrewRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: S3Access
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:PutObject'
+              - 's3:ListBucket'
+            Resource:
+              - !Ref RawDataBucketArn
+              - !Sub '${RawDataBucketArn}/*'
+              - !Ref ProcessedDataBucketArn
+              - !Sub '${ProcessedDataBucketArn}/*'
+
+  DataBrewKMSPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-${Environment}-databrew-kms'
+      Roles:
+        - !Ref DataBrewRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: KMSAccess
+            Effect: Allow
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+            Resource: !Ref KMSKeyArn
+
+Outputs:
+  GlueRoleArn:
+    Description: Glue service role ARN
+    Value: !GetAtt GlueRole.Arn
+
+  GlueRoleName:
+    Description: Glue service role name
+    Value: !Ref GlueRole
+
+  LambdaRoleArn:
+    Description: Lambda execution role ARN
+    Value: !GetAtt LambdaRole.Arn
+
+  LambdaRoleName:
+    Description: Lambda execution role name
+    Value: !Ref LambdaRole
+
+  DataBrewRoleArn:
+    Description: DataBrew service role ARN
+    Value: !GetAtt DataBrewRole.Arn
+
+  DataBrewRoleName:
+    Description: DataBrew service role name
+    Value: !Ref DataBrewRole

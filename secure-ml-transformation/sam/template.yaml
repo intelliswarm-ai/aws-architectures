@@ -1,0 +1,255 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'Secure ML Data Transformation - Lambda Functions (SAM)'
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 60
+    MemorySize: 256
+    Tracing: Active
+    Environment:
+      Variables:
+        LOG_LEVEL: INFO
+        POWERTOOLS_SERVICE_NAME: secure-ml-transform
+        POWERTOOLS_METRICS_NAMESPACE: SecureMLTransform
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+  ProjectName:
+    Type: String
+    Default: secure-ml-transform
+
+  VpcId:
+    Type: String
+    Description: VPC ID for Lambda functions
+
+  PrivateSubnetIds:
+    Type: CommaDelimitedList
+    Description: Private subnet IDs
+
+  SecurityGroupId:
+    Type: String
+    Description: Security group ID for Lambda functions
+
+  RawDataBucket:
+    Type: String
+    Description: Raw data S3 bucket name
+
+  ProcessedDataBucket:
+    Type: String
+    Description: Processed data S3 bucket name
+
+  KMSKeyArn:
+    Type: String
+    Description: KMS key ARN for encryption
+
+  GlueJobName:
+    Type: String
+    Description: Main Glue ETL job name
+
+Resources:
+  # ============================================================================
+  # Lambda Layers
+  # ============================================================================
+  DependenciesLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub '${ProjectName}-${Environment}-dependencies'
+      Description: Python dependencies for Lambda functions
+      ContentUri: ../src/
+      CompatibleRuntimes:
+        - python3.12
+      RetentionPolicy: Delete
+    Metadata:
+      BuildMethod: python3.12
+
+  # ============================================================================
+  # Job Trigger Function
+  # ============================================================================
+  JobTriggerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-job-trigger'
+      Description: Triggers Glue ETL jobs
+      Handler: src.handlers.job_trigger_handler.handler
+      CodeUri: ../
+      Layers:
+        - !Ref DependenciesLayer
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          PROJECT_NAME: !Ref ProjectName
+          RAW_DATA_BUCKET: !Ref RawDataBucket
+          PROCESSED_DATA_BUCKET: !Ref ProcessedDataBucket
+          KMS_KEY_ID: !Ref KMSKeyArn
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref SecurityGroupId
+        SubnetIds: !Ref PrivateSubnetIds
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - glue:StartJobRun
+                - glue:GetJobRun
+                - glue:GetJobRuns
+              Resource:
+                - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJobName}'
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:GenerateDataKey
+              Resource: !Ref KMSKeyArn
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+      Events:
+        S3Event:
+          Type: S3
+          Properties:
+            Bucket: !Ref RawDataBucketRef
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: transactions/
+                  - Name: suffix
+                    Value: .parquet
+        ScheduledEvent:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 2 * * ? *)
+            Description: Daily ETL trigger
+            Enabled: false
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # Reference to existing bucket (not created by this template)
+  RawDataBucketRef:
+    Type: AWS::S3::Bucket
+    Condition: CreateBucketCondition
+    Properties:
+      BucketName: !Ref RawDataBucket
+
+  # ============================================================================
+  # Lineage Handler Function
+  # ============================================================================
+  LineageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-lineage'
+      Description: Manages data lineage tracking
+      Handler: src.handlers.lineage_handler.handler
+      CodeUri: ../
+      Layers:
+        - !Ref DependenciesLayer
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          PROJECT_NAME: !Ref ProjectName
+          PROCESSED_DATA_BUCKET: !Ref ProcessedDataBucket
+          KMS_KEY_ID: !Ref KMSKeyArn
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref SecurityGroupId
+        SubnetIds: !Ref PrivateSubnetIds
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - !Sub 'arn:aws:s3:::${ProcessedDataBucket}'
+                - !Sub 'arn:aws:s3:::${ProcessedDataBucket}/*'
+            - Effect: Allow
+              Action:
+                - glue:GetJobRun
+                - glue:GetJobBookmark
+              Resource:
+                - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJobName}'
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+                - kms:GenerateDataKey
+              Resource: !Ref KMSKeyArn
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ============================================================================
+  # Audit Handler Function
+  # ============================================================================
+  AuditFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-audit'
+      Description: Manages audit logging and compliance
+      Handler: src.handlers.audit_handler.handler
+      CodeUri: ../
+      Timeout: 120
+      MemorySize: 512
+      Layers:
+        - !Ref DependenciesLayer
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          PROJECT_NAME: !Ref ProjectName
+          LOG_RETENTION_DAYS: '90'
+          KMS_KEY_ID: !Ref KMSKeyArn
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref SecurityGroupId
+        SubnetIds: !Ref PrivateSubnetIds
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+                - logs:FilterLogEvents
+                - logs:GetLogEvents
+                - logs:DescribeLogStreams
+              Resource:
+                - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/glue/${ProjectName}-*'
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+              Resource: !Ref KMSKeyArn
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+Conditions:
+  CreateBucketCondition: !Equals ['true', 'false']  # Never create, always reference
+
+Outputs:
+  JobTriggerFunctionArn:
+    Description: Job Trigger Lambda ARN
+    Value: !GetAtt JobTriggerFunction.Arn
+
+  LineageFunctionArn:
+    Description: Lineage Handler Lambda ARN
+    Value: !GetAtt LineageFunction.Arn
+
+  AuditFunctionArn:
+    Description: Audit Handler Lambda ARN
+    Value: !GetAtt AuditFunction.Arn

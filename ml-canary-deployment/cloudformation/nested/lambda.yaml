@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Canary Deployment - Lambda Functions'
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+  LambdaRoleArn:
+    Type: String
+  Environment:
+    Type: String
+  EndpointName:
+    Type: String
+  ModelBucketName:
+    Type: String
+  LogsBucketName:
+    Type: String
+  DeploymentsTableName:
+    Type: String
+  MetricsTableName:
+    Type: String
+  EventsTableName:
+    Type: String
+  AlertsTopicArn:
+    Type: String
+  EventsTopicArn:
+    Type: String
+  LatencyThresholdMs:
+    Type: Number
+  ErrorRateThreshold:
+    Type: Number
+
+Globals:
+  Function:
+    Runtime: python3.12
+    MemorySize: 512
+    Timeout: 60
+    Tracing: Active
+
+Resources:
+  ApiHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectPrefix}-api-handler'
+      Role: !Ref LambdaRoleArn
+      Handler: src.handlers.api_handler.handler
+      Runtime: python3.12
+      MemorySize: 512
+      Timeout: 60
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SAGEMAKER_ENDPOINT_NAME: !Ref EndpointName
+          MODEL_ARTIFACTS_BUCKET: !Ref ModelBucketName
+          INFERENCE_LOGS_BUCKET: !Ref LogsBucketName
+          DEPLOYMENTS_TABLE: !Ref DeploymentsTableName
+          METRICS_TABLE: !Ref MetricsTableName
+          EVENTS_TABLE: !Ref EventsTableName
+          ALERTS_TOPIC_ARN: !Ref AlertsTopicArn
+          DEPLOYMENT_EVENTS_TOPIC_ARN: !Ref EventsTopicArn
+
+  DeploymentHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectPrefix}-deployment-handler'
+      Role: !Ref LambdaRoleArn
+      Handler: src.handlers.deployment_handler.handler
+      Runtime: python3.12
+      MemorySize: 512
+      Timeout: 300
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SAGEMAKER_ENDPOINT_NAME: !Ref EndpointName
+          MODEL_ARTIFACTS_BUCKET: !Ref ModelBucketName
+          DEPLOYMENTS_TABLE: !Ref DeploymentsTableName
+          EVENTS_TABLE: !Ref EventsTableName
+          ALERTS_TOPIC_ARN: !Ref AlertsTopicArn
+          DEPLOYMENT_EVENTS_TOPIC_ARN: !Ref EventsTopicArn
+          LATENCY_THRESHOLD_MS: !Ref LatencyThresholdMs
+          ERROR_RATE_THRESHOLD: !Ref ErrorRateThreshold
+
+  MonitoringHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectPrefix}-monitoring-handler'
+      Role: !Ref LambdaRoleArn
+      Handler: src.handlers.monitoring_handler.handler
+      Runtime: python3.12
+      MemorySize: 512
+      Timeout: 60
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SAGEMAKER_ENDPOINT_NAME: !Ref EndpointName
+          DEPLOYMENTS_TABLE: !Ref DeploymentsTableName
+          METRICS_TABLE: !Ref MetricsTableName
+          ALERTS_TOPIC_ARN: !Ref AlertsTopicArn
+          LATENCY_THRESHOLD_MS: !Ref LatencyThresholdMs
+          ERROR_RATE_THRESHOLD: !Ref ErrorRateThreshold
+
+  TrafficShiftHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectPrefix}-traffic-shift-handler'
+      Role: !Ref LambdaRoleArn
+      Handler: src.handlers.traffic_shift_handler.handler
+      Runtime: python3.12
+      MemorySize: 512
+      Timeout: 60
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SAGEMAKER_ENDPOINT_NAME: !Ref EndpointName
+          DEPLOYMENTS_TABLE: !Ref DeploymentsTableName
+          EVENTS_TABLE: !Ref EventsTableName
+          ALERTS_TOPIC_ARN: !Ref AlertsTopicArn
+          DEPLOYMENT_EVENTS_TOPIC_ARN: !Ref EventsTopicArn
+
+  RollbackHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectPrefix}-rollback-handler'
+      Role: !Ref LambdaRoleArn
+      Handler: src.handlers.rollback_handler.handler
+      Runtime: python3.12
+      MemorySize: 512
+      Timeout: 60
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SAGEMAKER_ENDPOINT_NAME: !Ref EndpointName
+          DEPLOYMENTS_TABLE: !Ref DeploymentsTableName
+          EVENTS_TABLE: !Ref EventsTableName
+          ALERTS_TOPIC_ARN: !Ref AlertsTopicArn
+          DEPLOYMENT_EVENTS_TOPIC_ARN: !Ref EventsTopicArn
+
+Outputs:
+  ApiHandlerArn:
+    Value: !GetAtt ApiHandler.Arn
+  DeploymentHandlerArn:
+    Value: !GetAtt DeploymentHandler.Arn
+  MonitoringHandlerArn:
+    Value: !GetAtt MonitoringHandler.Arn
+  TrafficShiftHandlerArn:
+    Value: !GetAtt TrafficShiftHandler.Arn
+  RollbackHandlerArn:
+    Value: !GetAtt RollbackHandler.Arn

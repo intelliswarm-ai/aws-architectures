@@ -1,0 +1,269 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Glue resources for ETL processing'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  VpcId:
+    Type: String
+  PrivateSubnetIds:
+    Type: String
+  SecurityGroupId:
+    Type: String
+  GlueRoleArn:
+    Type: String
+  ScriptsBucket:
+    Type: String
+  RawDataBucket:
+    Type: String
+  ProcessedDataBucket:
+    Type: String
+  KMSKeyArn:
+    Type: String
+  GlueWorkerType:
+    Type: String
+  GlueNumberOfWorkers:
+    Type: Number
+  GlueJobTimeout:
+    Type: Number
+
+Resources:
+  # ============================================================================
+  # Glue Database
+  # ============================================================================
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Sub '${ProjectName}_${Environment}_db'
+        Description: !Sub 'Database for ${ProjectName} ML transformation pipeline'
+
+  # ============================================================================
+  # Glue Connection (VPC)
+  # ============================================================================
+  GlueConnection:
+    Type: AWS::Glue::Connection
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      ConnectionInput:
+        Name: !Sub '${ProjectName}-${Environment}-vpc-connection'
+        Description: VPC connection for Glue jobs
+        ConnectionType: NETWORK
+        PhysicalConnectionRequirements:
+          AvailabilityZone: !Select [0, !GetAZs '']
+          SubnetId: !Select [0, !Split [',', !Ref PrivateSubnetIds]]
+          SecurityGroupIdList:
+            - !Ref SecurityGroupId
+
+  # ============================================================================
+  # Glue Security Configuration
+  # ============================================================================
+  GlueSecurityConfiguration:
+    Type: AWS::Glue::SecurityConfiguration
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-security-config'
+      EncryptionConfiguration:
+        CloudWatchEncryption:
+          CloudWatchEncryptionMode: SSE-KMS
+          KmsKeyArn: !Ref KMSKeyArn
+        JobBookmarksEncryption:
+          JobBookmarksEncryptionMode: CSE-KMS
+          KmsKeyArn: !Ref KMSKeyArn
+        S3Encryptions:
+          - S3EncryptionMode: SSE-KMS
+            KmsKeyArn: !Ref KMSKeyArn
+
+  # ============================================================================
+  # Main ETL Job
+  # ============================================================================
+  MainETLJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-main-etl'
+      Description: Main ETL job for ML data transformation
+      Role: !Ref GlueRoleArn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub 's3://${ScriptsBucket}/glue/jobs/main_etl.py'
+        PythonVersion: '3'
+      DefaultArguments:
+        '--job-language': 'python'
+        '--job-bookmark-option': 'job-bookmark-enable'
+        '--enable-metrics': 'true'
+        '--enable-continuous-cloudwatch-log': 'true'
+        '--enable-spark-ui': 'true'
+        '--spark-event-logs-path': !Sub 's3://${ProcessedDataBucket}/spark-logs/'
+        '--TempDir': !Sub 's3://${ProcessedDataBucket}/temp/'
+        '--source_bucket': !Ref RawDataBucket
+        '--target_bucket': !Ref ProcessedDataBucket
+        '--environment': !Ref Environment
+        '--extra-py-files': !Sub 's3://${ScriptsBucket}/glue/jobs/pii_tokenization.py,s3://${ScriptsBucket}/glue/jobs/amount_binning.py,s3://${ScriptsBucket}/glue/jobs/merchant_encoding.py,s3://${ScriptsBucket}/glue/jobs/anomaly_detection.py'
+      Connections:
+        Connections:
+          - !Ref GlueConnection
+      SecurityConfiguration: !Ref GlueSecurityConfiguration
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      GlueVersion: '4.0'
+      WorkerType: !Ref GlueWorkerType
+      NumberOfWorkers: !Ref GlueNumberOfWorkers
+      Timeout: !Ref GlueJobTimeout
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ============================================================================
+  # Glue Trigger (Scheduled)
+  # ============================================================================
+  DailyTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-daily-trigger'
+      Description: Daily trigger for main ETL job
+      Type: SCHEDULED
+      Schedule: 'cron(0 2 * * ? *)'  # 2 AM daily
+      StartOnCreation: false  # Set to true in production
+      Actions:
+        - JobName: !Ref MainETLJob
+          Arguments:
+            '--source_path': !Sub 's3://${RawDataBucket}/transactions/'
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ============================================================================
+  # Raw Data Table
+  # ============================================================================
+  RawTransactionsTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref GlueDatabase
+      TableInput:
+        Name: raw_transactions
+        Description: Raw transaction data
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          classification: parquet
+          compressionType: snappy
+        StorageDescriptor:
+          Location: !Sub 's3://${RawDataBucket}/transactions/'
+          InputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+          Columns:
+            - Name: transaction_id
+              Type: string
+            - Name: customer_id
+              Type: string
+            - Name: account_number
+              Type: string
+            - Name: card_number
+              Type: string
+            - Name: email
+              Type: string
+            - Name: phone
+              Type: string
+            - Name: transaction_amount
+              Type: decimal(18,2)
+            - Name: currency
+              Type: string
+            - Name: merchant_category_code
+              Type: string
+            - Name: merchant_name
+              Type: string
+            - Name: transaction_timestamp
+              Type: timestamp
+            - Name: location_country
+              Type: string
+            - Name: location_city
+              Type: string
+
+  # ============================================================================
+  # Processed Data Table
+  # ============================================================================
+  ProcessedTransactionsTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref GlueDatabase
+      TableInput:
+        Name: processed_transactions
+        Description: Transformed transaction data for ML
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          classification: parquet
+          compressionType: snappy
+        PartitionKeys:
+          - Name: processing_date
+            Type: date
+        StorageDescriptor:
+          Location: !Sub 's3://${ProcessedDataBucket}/ml-ready/'
+          InputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+          Columns:
+            - Name: transaction_id
+              Type: string
+            - Name: customer_id
+              Type: string
+              Comment: Tokenized
+            - Name: account_number
+              Type: string
+              Comment: Tokenized
+            - Name: transaction_amount
+              Type: decimal(18,2)
+            - Name: transaction_amount_bin
+              Type: string
+            - Name: transaction_amount_bin_encoded
+              Type: int
+            - Name: merchant_category
+              Type: string
+            - Name: merchant_category_id
+              Type: int
+            - Name: merchant_risk_level
+              Type: string
+            - Name: merchant_risk_score
+              Type: float
+            - Name: is_cash_equivalent
+              Type: boolean
+            - Name: hour_of_day
+              Type: int
+            - Name: day_of_week
+              Type: int
+            - Name: is_weekend
+              Type: int
+            - Name: is_night
+              Type: int
+            - Name: anomaly_score
+              Type: float
+            - Name: is_anomaly
+              Type: boolean
+            - Name: anomaly_percentile
+              Type: float
+
+Outputs:
+  DatabaseName:
+    Description: Glue database name
+    Value: !Ref GlueDatabase
+
+  MainETLJobName:
+    Description: Main ETL job name
+    Value: !Ref MainETLJob
+
+  ConnectionName:
+    Description: Glue VPC connection name
+    Value: !Ref GlueConnection
+
+  SecurityConfigurationName:
+    Description: Glue security configuration name
+    Value: !Ref GlueSecurityConfiguration
+
+  DailyTriggerName:
+    Description: Daily trigger name
+    Value: !Ref DailyTrigger

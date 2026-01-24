@@ -1,0 +1,238 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudWatch resources for monitoring and audit logging'
+
+Parameters:
+  Environment:
+    Type: String
+  ProjectName:
+    Type: String
+  LogRetentionDays:
+    Type: Number
+  KMSKeyArn:
+    Type: String
+
+Resources:
+  # ============================================================================
+  # Log Groups
+  # ============================================================================
+  AuditLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/aws/glue/${ProjectName}-${Environment}/audit'
+      RetentionInDays: !Ref LogRetentionDays
+      KmsKeyId: !Ref KMSKeyArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: Audit
+
+  ETLJobLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/aws/glue/${ProjectName}-${Environment}/etl'
+      RetentionInDays: !Ref LogRetentionDays
+      KmsKeyId: !Ref KMSKeyArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  DataBrewLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/aws/databrew/${ProjectName}-${Environment}'
+      RetentionInDays: !Ref LogRetentionDays
+      KmsKeyId: !Ref KMSKeyArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================================
+  # Metric Filters
+  # ============================================================================
+  JobFailureMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ETLJobLogGroup
+      FilterPattern: '{ $.event_type = "JOB_FAILED" }'
+      MetricTransformations:
+        - MetricName: GlueJobFailures
+          MetricNamespace: !Sub '${ProjectName}/${Environment}'
+          MetricValue: '1'
+          DefaultValue: 0
+
+  PIITokenizationMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AuditLogGroup
+      FilterPattern: '{ $.event_type = "PII_TOKENIZATION" }'
+      MetricTransformations:
+        - MetricName: PIITokenizationEvents
+          MetricNamespace: !Sub '${ProjectName}/${Environment}'
+          MetricValue: '1'
+          DefaultValue: 0
+
+  AnomalyDetectionMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AuditLogGroup
+      FilterPattern: '{ $.event_type = "ANOMALY_DETECTED" }'
+      MetricTransformations:
+        - MetricName: AnomaliesDetected
+          MetricNamespace: !Sub '${ProjectName}/${Environment}'
+          MetricValue: '$.details.anomaly_count'
+          DefaultValue: 0
+
+  # ============================================================================
+  # Alarms
+  # ============================================================================
+  JobFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-job-failures'
+      AlarmDescription: Alert on Glue job failures
+      MetricName: GlueJobFailures
+      Namespace: !Sub '${ProjectName}/${Environment}'
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  HighAnomalyRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-high-anomaly-rate'
+      AlarmDescription: Alert on unusually high anomaly detection rate
+      MetricName: AnomaliesDetected
+      Namespace: !Sub '${ProjectName}/${Environment}'
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 1000
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  # ============================================================================
+  # Dashboard
+  # ============================================================================
+  MonitoringDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-${Environment}'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Glue Job Metrics",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["Glue", "glue.driver.aggregate.numCompletedTasks", "JobName", "${ProjectName}-${Environment}-main-etl", "Type", "gauge"],
+                  [".", "glue.driver.aggregate.numFailedTasks", ".", ".", ".", "."]
+                ],
+                "period": 300,
+                "stat": "Average"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Job Failures",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["${ProjectName}/${Environment}", "GlueJobFailures"]
+                ],
+                "period": 300,
+                "stat": "Sum"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "PII Tokenization Events",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["${ProjectName}/${Environment}", "PIITokenizationEvents"]
+                ],
+                "period": 3600,
+                "stat": "Sum"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Anomalies Detected",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["${ProjectName}/${Environment}", "AnomaliesDetected"]
+                ],
+                "period": 3600,
+                "stat": "Sum"
+              }
+            },
+            {
+              "type": "log",
+              "x": 0,
+              "y": 12,
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "title": "Recent Audit Events",
+                "region": "${AWS::Region}",
+                "query": "SOURCE '/aws/glue/${ProjectName}-${Environment}/audit' | fields @timestamp, event_type, job_execution_id, details.records_processed | sort @timestamp desc | limit 20"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  AuditLogGroupName:
+    Description: Audit log group name
+    Value: !Ref AuditLogGroup
+
+  AuditLogGroupArn:
+    Description: Audit log group ARN
+    Value: !GetAtt AuditLogGroup.Arn
+
+  ETLJobLogGroupName:
+    Description: ETL job log group name
+    Value: !Ref ETLJobLogGroup
+
+  DataBrewLogGroupName:
+    Description: DataBrew log group name
+    Value: !Ref DataBrewLogGroup
+
+  DashboardName:
+    Description: CloudWatch dashboard name
+    Value: !Ref MonitoringDashboard

@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'ML Canary Deployment - SAM Template for local development'
+
+Globals:
+  Function:
+    Runtime: python3.12
+    MemorySize: 512
+    Timeout: 60
+    Tracing: Active
+    Environment:
+      Variables:
+        AWS_REGION: !Ref AWS::Region
+        ENVIRONMENT: !Ref Environment
+        LOG_LEVEL: INFO
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+
+Resources:
+  ApiHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'ml-canary-${Environment}-api-handler'
+      Handler: src.handlers.api_handler.handler
+      CodeUri: ../
+      Events:
+        InferenceApi:
+          Type: Api
+          Properties:
+            Path: /inference
+            Method: post
+
+  DeploymentHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'ml-canary-${Environment}-deployment-handler'
+      Handler: src.handlers.deployment_handler.handler
+      CodeUri: ../
+      Timeout: 300
+      Events:
+        DeploymentsApi:
+          Type: Api
+          Properties:
+            Path: /deployments
+            Method: post
+
+  MonitoringHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'ml-canary-${Environment}-monitoring-handler'
+      Handler: src.handlers.monitoring_handler.handler
+      CodeUri: ../
+      Events:
+        ScheduledEvent:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 minute)
+            Enabled: false
+
+  TrafficShiftHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'ml-canary-${Environment}-traffic-shift-handler'
+      Handler: src.handlers.traffic_shift_handler.handler
+      CodeUri: ../
+      Events:
+        TrafficApi:
+          Type: Api
+          Properties:
+            Path: /traffic
+            Method: post
+
+  RollbackHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'ml-canary-${Environment}-rollback-handler'
+      Handler: src.handlers.rollback_handler.handler
+      CodeUri: ../
+      Events:
+        RollbackApi:
+          Type: Api
+          Properties:
+            Path: /rollback
+            Method: post
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'

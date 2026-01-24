@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Canary Deployment - SNS Topics'
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Description: Project prefix for resource naming
+
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: Email for alerts
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
+
+Resources:
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectPrefix}-alerts'
+
+  EventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectPrefix}-deployment-events'
+
+  AlertEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+Outputs:
+  AlertsTopicArn:
+    Description: Alerts SNS topic ARN
+    Value: !Ref AlertsTopic
+
+  EventsTopicArn:
+    Description: Events SNS topic ARN
+    Value: !Ref EventsTopic

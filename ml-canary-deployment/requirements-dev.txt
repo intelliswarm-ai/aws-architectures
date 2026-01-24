@@ -1,0 +1,23 @@
+# Development dependencies
+-r requirements.txt
+
+# Testing
+pytest>=8.3.0
+pytest-cov>=6.0.0
+pytest-asyncio>=0.24.0
+pytest-mock>=3.14.0
+moto[all]>=5.0.0
+
+# Linting & Formatting
+ruff>=0.8.0
+mypy>=1.13.0
+black>=24.10.0
+
+# Type stubs
+boto3-stubs[essential,sagemaker,sagemaker-runtime,cloudwatch,sns,dynamodb,s3]>=1.35.0
+
+# SageMaker development
+sagemaker>=2.232.0
+scikit-learn>=1.5.0
+pandas>=2.2.0
+xgboost>=2.1.0

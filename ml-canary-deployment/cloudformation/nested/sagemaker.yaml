@@ -1,0 +1,78 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Canary Deployment - SageMaker Resources'
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+  ExecutionRoleArn:
+    Type: String
+  InstanceType:
+    Type: String
+    Default: ml.m5.xlarge
+  InitialInstanceCount:
+    Type: Number
+    Default: 1
+  EnableAutoScaling:
+    Type: String
+    Default: 'true'
+
+Conditions:
+  EnableAutoScalingCondition: !Equals [!Ref EnableAutoScaling, 'true']
+
+Resources:
+  ProductionModel:
+    Type: AWS::SageMaker::Model
+    Properties:
+      ModelName: !Sub '${ProjectPrefix}-production'
+      ExecutionRoleArn: !Ref ExecutionRoleArn
+      PrimaryContainer:
+        Image: !Sub '763104351884.dkr.ecr.${AWS::Region}.amazonaws.com/xgboost:1.7-1'
+
+  EndpointConfig:
+    Type: AWS::SageMaker::EndpointConfig
+    Properties:
+      EndpointConfigName: !Sub '${ProjectPrefix}-config'
+      ProductionVariants:
+        - VariantName: production
+          ModelName: !Ref ProductionModel
+          InstanceType: !Ref InstanceType
+          InitialInstanceCount: !Ref InitialInstanceCount
+          InitialVariantWeight: 1.0
+
+  Endpoint:
+    Type: AWS::SageMaker::Endpoint
+    Properties:
+      EndpointName: !Sub '${ProjectPrefix}-endpoint'
+      EndpointConfigName: !Ref EndpointConfig
+
+  AutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Condition: EnableAutoScalingCondition
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub 'endpoint/${Endpoint}/variant/production'
+      ScalableDimension: sagemaker:variant:DesiredInstanceCount
+      ServiceNamespace: sagemaker
+
+  AutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Condition: EnableAutoScalingCondition
+    Properties:
+      PolicyName: !Sub '${ProjectPrefix}-scaling-policy'
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: SageMakerVariantInvocationsPerInstance
+        TargetValue: 1000
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+
+Outputs:
+  EndpointName:
+    Value: !GetAtt Endpoint.EndpointName
+  EndpointArn:
+    Value: !Ref Endpoint
+  EndpointConfigName:
+    Value: !Ref EndpointConfig

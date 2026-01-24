@@ -1,0 +1,259 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Canary Deployment - SageMaker model deployment with traffic splitting and A/B testing'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Default: ml-canary-deployment
+    Description: Project name for resource naming
+
+  SageMakerInstanceType:
+    Type: String
+    Default: ml.m5.xlarge
+    Description: SageMaker endpoint instance type
+
+  InitialInstanceCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    Description: Initial number of instances
+
+  LatencyThresholdMs:
+    Type: Number
+    Default: 100
+    Description: Maximum acceptable P99 latency in milliseconds
+
+  ErrorRateThreshold:
+    Type: Number
+    Default: 0.01
+    Description: Maximum acceptable error rate (0.0 to 1.0)
+
+  EnableAutoScaling:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable auto-scaling for endpoint
+
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: Email address for deployment alerts
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'Environment Configuration'
+        Parameters:
+          - Environment
+          - ProjectName
+      - Label:
+          default: 'SageMaker Configuration'
+        Parameters:
+          - SageMakerInstanceType
+          - InitialInstanceCount
+          - EnableAutoScaling
+      - Label:
+          default: 'Monitoring Configuration'
+        Parameters:
+          - LatencyThresholdMs
+          - ErrorRateThreshold
+          - AlertEmail
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
+  EnableAutoScalingCondition: !Equals [!Ref EnableAutoScaling, 'true']
+
+Resources:
+  # S3 Stack
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested/s3.yaml
+      Parameters:
+        ProjectPrefix: !Sub '${ProjectName}-${Environment}'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # DynamoDB Stack
+  DynamoDBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested/dynamodb.yaml
+      Parameters:
+        ProjectPrefix: !Sub '${ProjectName}-${Environment}'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # SNS Stack
+  SNSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: nested/sns.yaml
+      Parameters:
+        ProjectPrefix: !Sub '${ProjectName}-${Environment}'
+        AlertEmail: !Ref AlertEmail
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Stack
+  IAMStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - S3Stack
+      - DynamoDBStack
+      - SNSStack
+    Properties:
+      TemplateURL: nested/iam.yaml
+      Parameters:
+        ProjectPrefix: !Sub '${ProjectName}-${Environment}'
+        ModelBucketArn: !GetAtt S3Stack.Outputs.ModelBucketArn
+        LogsBucketArn: !GetAtt S3Stack.Outputs.LogsBucketArn
+        DeploymentsTableArn: !GetAtt DynamoDBStack.Outputs.DeploymentsTableArn
+        MetricsTableArn: !GetAtt DynamoDBStack.Outputs.MetricsTableArn
+        EventsTableArn: !GetAtt DynamoDBStack.Outputs.EventsTableArn
+        AlertsTopicArn: !GetAtt SNSStack.Outputs.AlertsTopicArn
+        EventsTopicArn: !GetAtt SNSStack.Outputs.EventsTopicArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # SageMaker Stack
+  SageMakerStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+      - S3Stack
+    Properties:
+      TemplateURL: nested/sagemaker.yaml
+      Parameters:
+        ProjectPrefix: !Sub '${ProjectName}-${Environment}'
+        ExecutionRoleArn: !GetAtt IAMStack.Outputs.SageMakerExecutionRoleArn
+        InstanceType: !Ref SageMakerInstanceType
+        InitialInstanceCount: !Ref InitialInstanceCount
+        EnableAutoScaling: !Ref EnableAutoScaling
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Stack
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - IAMStack
+      - S3Stack
+      - DynamoDBStack
+      - SNSStack
+      - SageMakerStack
+    Properties:
+      TemplateURL: nested/lambda.yaml
+      Parameters:
+        ProjectPrefix: !Sub '${ProjectName}-${Environment}'
+        LambdaRoleArn: !GetAtt IAMStack.Outputs.LambdaExecutionRoleArn
+        Environment: !Ref Environment
+        EndpointName: !GetAtt SageMakerStack.Outputs.EndpointName
+        ModelBucketName: !GetAtt S3Stack.Outputs.ModelBucketName
+        LogsBucketName: !GetAtt S3Stack.Outputs.LogsBucketName
+        DeploymentsTableName: !GetAtt DynamoDBStack.Outputs.DeploymentsTableName
+        MetricsTableName: !GetAtt DynamoDBStack.Outputs.MetricsTableName
+        EventsTableName: !GetAtt DynamoDBStack.Outputs.EventsTableName
+        AlertsTopicArn: !GetAtt SNSStack.Outputs.AlertsTopicArn
+        EventsTopicArn: !GetAtt SNSStack.Outputs.EventsTopicArn
+        LatencyThresholdMs: !Ref LatencyThresholdMs
+        ErrorRateThreshold: !Ref ErrorRateThreshold
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # API Gateway Stack
+  APIGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - LambdaStack
+    Properties:
+      TemplateURL: nested/api-gateway.yaml
+      Parameters:
+        ProjectPrefix: !Sub '${ProjectName}-${Environment}'
+        StageName: !Ref Environment
+        ApiHandlerArn: !GetAtt LambdaStack.Outputs.ApiHandlerArn
+        DeploymentHandlerArn: !GetAtt LambdaStack.Outputs.DeploymentHandlerArn
+        TrafficShiftHandlerArn: !GetAtt LambdaStack.Outputs.TrafficShiftHandlerArn
+        RollbackHandlerArn: !GetAtt LambdaStack.Outputs.RollbackHandlerArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # CloudWatch Stack
+  CloudWatchStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - SageMakerStack
+      - LambdaStack
+      - SNSStack
+    Properties:
+      TemplateURL: nested/cloudwatch.yaml
+      Parameters:
+        ProjectPrefix: !Sub '${ProjectName}-${Environment}'
+        EndpointName: !GetAtt SageMakerStack.Outputs.EndpointName
+        LatencyThresholdMs: !Ref LatencyThresholdMs
+        ErrorRateThreshold: !Ref ErrorRateThreshold
+        AlertsTopicArn: !GetAtt SNSStack.Outputs.AlertsTopicArn
+        MonitoringHandlerArn: !GetAtt LambdaStack.Outputs.MonitoringHandlerArn
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !GetAtt APIGatewayStack.Outputs.ApiEndpoint
+
+  EndpointName:
+    Description: SageMaker endpoint name
+    Value: !GetAtt SageMakerStack.Outputs.EndpointName
+
+  ModelBucketName:
+    Description: S3 bucket for model artifacts
+    Value: !GetAtt S3Stack.Outputs.ModelBucketName
+
+  DeploymentsTableName:
+    Description: DynamoDB table for deployments
+    Value: !GetAtt DynamoDBStack.Outputs.DeploymentsTableName
+
+  AlertsTopicArn:
+    Description: SNS topic for alerts
+    Value: !GetAtt SNSStack.Outputs.AlertsTopicArn
+
+  DashboardName:
+    Description: CloudWatch dashboard name
+    Value: !GetAtt CloudWatchStack.Outputs.DashboardName

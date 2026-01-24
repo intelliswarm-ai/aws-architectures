@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Canary Deployment - S3 Buckets'
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Description: Project prefix for resource naming
+
+Resources:
+  ModelArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectPrefix}-model-artifacts'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionOldModels
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 90
+                StorageClass: STANDARD_IA
+              - TransitionInDays: 365
+                StorageClass: GLACIER
+
+  InferenceLogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectPrefix}-inference-logs'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldLogs
+            Status: Enabled
+            ExpirationInDays: 90
+
+Outputs:
+  ModelBucketName:
+    Description: Model artifacts bucket name
+    Value: !Ref ModelArtifactsBucket
+
+  ModelBucketArn:
+    Description: Model artifacts bucket ARN
+    Value: !GetAtt ModelArtifactsBucket.Arn
+
+  LogsBucketName:
+    Description: Inference logs bucket name
+    Value: !Ref InferenceLogsBucket
+
+  LogsBucketArn:
+    Description: Inference logs bucket ARN
+    Value: !GetAtt InferenceLogsBucket.Arn

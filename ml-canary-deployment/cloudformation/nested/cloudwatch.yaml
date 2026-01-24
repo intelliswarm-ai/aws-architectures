@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Canary Deployment - CloudWatch Monitoring'
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+  EndpointName:
+    Type: String
+  LatencyThresholdMs:
+    Type: Number
+  ErrorRateThreshold:
+    Type: Number
+  AlertsTopicArn:
+    Type: String
+  MonitoringHandlerArn:
+    Type: String
+
+Resources:
+  LatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectPrefix}-latency-alarm'
+      AlarmDescription: Canary variant P99 latency exceeds threshold
+      MetricName: ModelLatency
+      Namespace: AWS/SageMaker
+      Statistic: p99
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: !Sub '${LatencyThresholdMs}000'  # Convert to microseconds
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: EndpointName
+          Value: !Ref EndpointName
+        - Name: VariantName
+          Value: canary
+      AlarmActions:
+        - !Ref AlertsTopicArn
+      OKActions:
+        - !Ref AlertsTopicArn
+
+  MonitoringScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectPrefix}-monitoring-schedule'
+      Description: Trigger monitoring Lambda every minute
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Id: MonitoringLambda
+          Arn: !Ref MonitoringHandlerArn
+
+  MonitoringLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MonitoringHandlerArn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt MonitoringScheduleRule.Arn
+
+Outputs:
+  DashboardName:
+    Value: !Sub '${ProjectPrefix}-dashboard'
+  LatencyAlarmArn:
+    Value: !GetAtt LatencyAlarm.Arn

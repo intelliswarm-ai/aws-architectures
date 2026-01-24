@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Canary Deployment - DynamoDB Tables'
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Description: Project prefix for resource naming
+
+Resources:
+  DeploymentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectPrefix}-deployments'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: deployment_id
+          AttributeType: S
+        - AttributeName: endpoint_name
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: deployment_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: endpoint-index
+          KeySchema:
+            - AttributeName: endpoint_name
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: status-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  MetricsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectPrefix}-metrics'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: deployment_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: deployment_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectPrefix}-events'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: deployment_id
+          AttributeType: S
+        - AttributeName: event_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: deployment_id
+          KeyType: HASH
+        - AttributeName: event_id
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+Outputs:
+  DeploymentsTableName:
+    Description: Deployments table name
+    Value: !Ref DeploymentsTable
+
+  DeploymentsTableArn:
+    Description: Deployments table ARN
+    Value: !GetAtt DeploymentsTable.Arn
+
+  MetricsTableName:
+    Description: Metrics table name
+    Value: !Ref MetricsTable
+
+  MetricsTableArn:
+    Description: Metrics table ARN
+    Value: !GetAtt MetricsTable.Arn
+
+  EventsTableName:
+    Description: Events table name
+    Value: !Ref EventsTable
+
+  EventsTableArn:
+    Description: Events table ARN
+    Value: !GetAtt EventsTable.Arn

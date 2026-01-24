@@ -1,0 +1,21 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "ml-canary-deployment-dev"
+resolve_s3 = true
+s3_prefix = "ml-canary-deployment"
+region = "eu-central-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+parameter_overrides = "Environment=dev"
+
+[default.build.parameters]
+use_container = false
+cached = true
+parallel = true
+
+[default.local_invoke.parameters]
+env_vars = "env.json"
+
+[default.sync.parameters]
+watch = true

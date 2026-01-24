@@ -1,0 +1,14 @@
+# Core AWS SDK
+boto3>=1.35.0
+botocore>=1.35.0
+
+# Lambda utilities
+aws-lambda-powertools>=3.3.0
+
+# Data validation and configuration
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# ML and numerical computing (for Lambda functions)
+numpy>=1.26.0
+scikit-learn>=1.4.0
