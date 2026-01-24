@@ -34,6 +34,8 @@ This project is not officially supported by Amazon Web Services (AWS). It is a p
 | [emr-fraud-detection](./emr-fraud-detection) | ML Fraud Detection with Spark | Python 3.12 | EMR, Spark MLlib, Kinesis, Step Functions, DynamoDB | [docs](./emr-fraud-detection/docs/BUSINESS_LOGIC.md) |
 | [genai-knowledge-assistant](./genai-knowledge-assistant) | RAG Knowledge Base Assistant | Python 3.12 | Bedrock (Claude, Titan), Knowledge Bases, Agents, OpenSearch Serverless | [docs](./genai-knowledge-assistant/docs/BUSINESS_LOGIC.md) |
 | [healthcare-imaging-lake](./healthcare-imaging-lake) | HIPAA-Compliant Healthcare Imaging Data Lake | Python 3.12 | S3, KMS, Glue, Lake Formation, Athena, Lambda | [docs](./healthcare-imaging-lake/docs/BUSINESS_LOGIC.md) |
+| [secure-ml-transformation](./secure-ml-transformation) | Secure ML Data Transformation Pipeline | Python 3.12 | Glue ETL, DataBrew, VPC Endpoints, KMS, CloudWatch | [docs](./secure-ml-transformation/docs/BUSINESS_LOGIC.md) |
+| [ml-canary-deployment](./ml-canary-deployment) | ML Canary Deployment with Traffic Splitting | Python 3.12 | SageMaker, Lambda, API Gateway, DynamoDB, CloudWatch | [docs](./ml-canary-deployment/docs/BUSINESS_LOGIC.md) |
 
 ---
 
@@ -45,7 +47,7 @@ Find projects by AWS service for quick navigation:
 
 | Service | Projects |
 |---------|----------|
-| **Lambda** | [serverless-api](./serverless-api), [document-processing](./document-processing), [multi-tenant-saas](./multi-tenant-saas), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [banking-transactions](./banking-transactions), [call-center-analytics](./call-center-analytics), [conversational-ai](./conversational-ai), [data-lake-analytics](./data-lake-analytics), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant), [healthcare-imaging-lake](./healthcare-imaging-lake) |
+| **Lambda** | [serverless-api](./serverless-api), [document-processing](./document-processing), [multi-tenant-saas](./multi-tenant-saas), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [banking-transactions](./banking-transactions), [call-center-analytics](./call-center-analytics), [conversational-ai](./conversational-ai), [data-lake-analytics](./data-lake-analytics), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant), [healthcare-imaging-lake](./healthcare-imaging-lake), [secure-ml-transformation](./secure-ml-transformation), [ml-canary-deployment](./ml-canary-deployment) |
 | **EMR (Spark)** | [emr-fraud-detection](./emr-fraud-detection) |
 | **Elastic Beanstalk** | [hybrid-enterprise-app](./hybrid-enterprise-app) |
 | **EC2 Auto Scaling** | [banking-transactions](./banking-transactions) |
@@ -56,17 +58,17 @@ Find projects by AWS service for quick navigation:
 | Service | Projects |
 |---------|----------|
 | **SQS** | [serverless-api](./serverless-api), [banking-transactions](./banking-transactions) |
-| **SNS** | [serverless-api](./serverless-api), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [emr-fraud-detection](./emr-fraud-detection) |
+| **SNS** | [serverless-api](./serverless-api), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [emr-fraud-detection](./emr-fraud-detection), [ml-canary-deployment](./ml-canary-deployment) |
 | **Kinesis Data Streams** | [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [emr-fraud-detection](./emr-fraud-detection) |
-| **EventBridge** | [serverless-api](./serverless-api), [fleet-tracking](./fleet-tracking) |
+| **EventBridge** | [serverless-api](./serverless-api), [fleet-tracking](./fleet-tracking), [secure-ml-transformation](./secure-ml-transformation), [ml-canary-deployment](./ml-canary-deployment) |
 | **Pinpoint** | [messaging-platform](./messaging-platform) |
 
 ### Databases & Storage
 
 | Service | Projects |
 |---------|----------|
-| **DynamoDB** | [serverless-api](./serverless-api), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [banking-transactions](./banking-transactions), [conversational-ai](./conversational-ai), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant) |
-| **S3** | [document-processing](./document-processing), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [call-center-analytics](./call-center-analytics), [data-lake-analytics](./data-lake-analytics), [hybrid-enterprise-app](./hybrid-enterprise-app), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant), [healthcare-imaging-lake](./healthcare-imaging-lake) |
+| **DynamoDB** | [serverless-api](./serverless-api), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [banking-transactions](./banking-transactions), [conversational-ai](./conversational-ai), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant), [ml-canary-deployment](./ml-canary-deployment) |
+| **S3** | [document-processing](./document-processing), [fleet-tracking](./fleet-tracking), [messaging-platform](./messaging-platform), [call-center-analytics](./call-center-analytics), [data-lake-analytics](./data-lake-analytics), [hybrid-enterprise-app](./hybrid-enterprise-app), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant), [healthcare-imaging-lake](./healthcare-imaging-lake), [secure-ml-transformation](./secure-ml-transformation), [ml-canary-deployment](./ml-canary-deployment) |
 | **OpenSearch** | [call-center-analytics](./call-center-analytics), [genai-knowledge-assistant](./genai-knowledge-assistant) |
 
 ### AI/ML Services
@@ -79,7 +81,7 @@ Find projects by AWS service for quick navigation:
 | **Bedrock Titan Embeddings** | [genai-knowledge-assistant](./genai-knowledge-assistant) |
 | **Comprehend** | [document-processing](./document-processing), [call-center-analytics](./call-center-analytics) |
 | **Lex V2** | [conversational-ai](./conversational-ai) |
-| **SageMaker** | [document-processing](./document-processing) |
+| **SageMaker** | [document-processing](./document-processing), [ml-canary-deployment](./ml-canary-deployment) |
 | **Textract** | [document-processing](./document-processing) |
 | **Rekognition** | [document-processing](./document-processing) |
 | **Transcribe** | [document-processing](./document-processing) |
@@ -90,7 +92,8 @@ Find projects by AWS service for quick navigation:
 |---------|----------|
 | **EMR (Spark MLlib)** | [emr-fraud-detection](./emr-fraud-detection) |
 | **Athena** | [data-lake-analytics](./data-lake-analytics), [healthcare-imaging-lake](./healthcare-imaging-lake) |
-| **Glue ETL** | [data-lake-analytics](./data-lake-analytics), [healthcare-imaging-lake](./healthcare-imaging-lake) |
+| **Glue ETL** | [data-lake-analytics](./data-lake-analytics), [healthcare-imaging-lake](./healthcare-imaging-lake), [secure-ml-transformation](./secure-ml-transformation) |
+| **Glue DataBrew** | [secure-ml-transformation](./secure-ml-transformation) |
 | **Lake Formation** | [data-lake-analytics](./data-lake-analytics), [healthcare-imaging-lake](./healthcare-imaging-lake) |
 
 ### Security & Identity
@@ -99,7 +102,7 @@ Find projects by AWS service for quick navigation:
 |---------|----------|
 | **Cognito** | [multi-tenant-saas](./multi-tenant-saas) |
 | **WAF** | [multi-tenant-saas](./multi-tenant-saas) |
-| **KMS** | [multi-tenant-saas](./multi-tenant-saas), [healthcare-imaging-lake](./healthcare-imaging-lake) |
+| **KMS** | [multi-tenant-saas](./multi-tenant-saas), [healthcare-imaging-lake](./healthcare-imaging-lake), [secure-ml-transformation](./secure-ml-transformation) |
 | **Secrets Manager** | [multi-tenant-saas](./multi-tenant-saas) |
 | **CloudTrail** | [multi-tenant-saas](./multi-tenant-saas) |
 
@@ -107,8 +110,8 @@ Find projects by AWS service for quick navigation:
 
 | Service | Projects |
 |---------|----------|
-| **API Gateway** | [banking-transactions](./banking-transactions), [call-center-analytics](./call-center-analytics), [conversational-ai](./conversational-ai), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant) |
-| **VPC** | [multi-tenant-saas](./multi-tenant-saas), [emr-fraud-detection](./emr-fraud-detection) |
+| **API Gateway** | [banking-transactions](./banking-transactions), [call-center-analytics](./call-center-analytics), [conversational-ai](./conversational-ai), [emr-fraud-detection](./emr-fraud-detection), [genai-knowledge-assistant](./genai-knowledge-assistant), [ml-canary-deployment](./ml-canary-deployment) |
+| **VPC** | [multi-tenant-saas](./multi-tenant-saas), [emr-fraud-detection](./emr-fraud-detection), [secure-ml-transformation](./secure-ml-transformation) |
 | **VPN Gateway** | [hybrid-enterprise-app](./hybrid-enterprise-app) |
 
 ---
@@ -659,6 +662,91 @@ cd healthcare-imaging-lake
 
 ---
 
+## secure-ml-transformation
+
+**Secure ML Data Transformation Pipeline** - A VPC-isolated data transformation pipeline for financial ML fraud detection using AWS Glue, DataBrew, and custom PySpark transformations.
+
+### Use Case
+A financial institution must transform sensitive transaction data for ML fraud detection models. The solution maintains strict data lineage, supports audit trails, and processes data within a VPC without internet access.
+
+### Architecture Highlights
+- **VPC Isolation** - No internet gateway, private subnets only
+- **VPC Endpoints** - S3, Glue, CloudWatch, KMS, Secrets Manager
+- **AWS Glue ETL** - Custom PySpark transformations
+- **Glue DataBrew** - Sensitive data detection and profiling
+- **Glue Job Bookmarks** - Data lineage tracking
+- **KMS Encryption** - Customer-managed keys for all data
+- **CloudWatch Logs** - Encrypted audit trails
+
+### Tech Stack
+- Python 3.12 with type hints
+- PySpark for Glue ETL jobs
+- Pydantic for data validation
+- AWS Lambda Powertools (logging, tracing, metrics)
+- Isolation Forest for anomaly detection
+- Terraform modular infrastructure (6 modules)
+- CloudFormation nested stacks (6 templates)
+
+### Key Features
+- **PII Tokenization** - Deterministic, format-preserving, and hash methods
+- **Transaction Binning** - Percentile, quantile, and custom ranges
+- **Merchant Encoding** - Hierarchical category mapping with risk scoring
+- **Anomaly Detection** - Isolation Forest with temporal/velocity features
+- **Data Lineage** - Job bookmarks and catalog metadata
+
+### Quick Start
+```bash
+cd secure-ml-transformation
+./scripts/build.sh
+./scripts/deploy.sh -e dev
+```
+
+[View full documentation](./secure-ml-transformation/README.md) | [Business Logic](./secure-ml-transformation/docs/BUSINESS_LOGIC.md)
+
+---
+
+## ml-canary-deployment
+
+**ML Canary Deployment with Traffic Splitting** - A production-ready solution for deploying ML models with canary releases, traffic splitting, and A/B testing on Amazon SageMaker.
+
+### Use Case
+A media streaming company serving millions of daily active users needs to safely deploy new ML recommendation models with sub-100ms inference latency. The system gradually shifts traffic to new model versions while monitoring for regressions.
+
+### Architecture Highlights
+- **SageMaker Production Variants** - Multiple model versions on single endpoint
+- **Traffic Splitting** - Gradual traffic shifting via UpdateEndpointWeightsAndCapacities
+- **Auto-Rollback** - Automatic rollback when latency or error rate thresholds exceeded
+- **Auto-Scaling** - Scale instances based on invocations per instance
+- **Real-time Monitoring** - CloudWatch metrics, alarms, and dashboards
+- **SNS Alerts** - Notifications for deployment events
+
+### Tech Stack
+- Python 3.12 with type hints
+- Pydantic for data validation
+- AWS Lambda Powertools (logging, tracing, metrics)
+- XGBoost for model training
+- Terraform modular infrastructure (7 modules)
+- CloudFormation nested stacks (7 templates)
+- SAM template for local development
+
+### Key Features
+- **Canary Deployments** - Start at 10% traffic, gradually increase
+- **A/B Testing** - Compare model performance with built-in metrics
+- **P99 Latency Monitoring** - Sub-100ms latency threshold enforcement
+- **Error Rate Tracking** - Automatic rollback at 1% error rate
+- **Zero-Downtime Updates** - Traffic shifts without endpoint recreation
+
+### Quick Start
+```bash
+cd ml-canary-deployment
+./scripts/build.sh
+./scripts/deploy.sh -e dev
+```
+
+[View full documentation](./ml-canary-deployment/README.md) | [Business Logic](./ml-canary-deployment/docs/BUSINESS_LOGIC.md)
+
+---
+
 ## Common Patterns
 
 All projects demonstrate:
@@ -697,7 +785,7 @@ All projects demonstrate:
 - Java 21 (Amazon Corretto recommended)
 - Maven 3.9+
 
-### document-processing / multi-tenant-saas / fleet-tracking / messaging-platform / banking-transactions / call-center-analytics / conversational-ai / data-lake-analytics / emr-fraud-detection / genai-knowledge-assistant / healthcare-imaging-lake (Python)
+### document-processing / multi-tenant-saas / fleet-tracking / messaging-platform / banking-transactions / call-center-analytics / conversational-ai / data-lake-analytics / emr-fraud-detection / genai-knowledge-assistant / healthcare-imaging-lake / secure-ml-transformation / ml-canary-deployment (Python)
 - Python 3.12+
 - pip or uv for package management
 
@@ -765,11 +853,14 @@ Most projects use serverless, pay-per-use services. The hybrid-enterprise-app pr
 | Lex | None | $0.004/speech, $0.00075/text |
 | Athena | None | $5/TB scanned |
 | Glue ETL | None | $0.44/DPU-hour |
+| Glue DataBrew | None | $1/node-hour |
 | Lake Formation | None | No additional charge |
 | Elastic Beanstalk | None (EC2 costs) | ~$30/mo per t3.medium |
 | EC2 Auto Scaling | None (EC2 costs) | ~$30/mo per t3.medium |
 | EMR | None | $0.192/hr (m5.xlarge) + EC2 |
+| SageMaker Endpoints | None | $0.126/hr (ml.m5.large) |
 | VPN Gateway | None | $0.05/hour (~$36/mo) |
+| VPC Endpoints | None | $0.01/hr + $0.01/GB |
 
 **Tip**: Use `./scripts/deploy.sh --destroy` to tear down resources when not in use.
 
@@ -888,14 +979,42 @@ aws-prorotypes/
 │   ├── docs/                      # Business logic & cost simulation
 │   ├── scripts/                   # Build/deploy scripts
 │   └── README.md
-└── healthcare-imaging-lake/       # HIPAA-Compliant Healthcare Imaging Data Lake
+├── healthcare-imaging-lake/       # HIPAA-Compliant Healthcare Imaging Data Lake
+│   ├── src/                       # Python Lambda source
+│   │   ├── common/                # Config, models, exceptions
+│   │   ├── handlers/              # API, ingestion, catalog, query
+│   │   └── services/              # S3, KMS, Glue, Lake Formation, Athena
+│   ├── glue/                      # PySpark ETL scripts
+│   ├── terraform/                 # Terraform infrastructure (8 modules)
+│   ├── cloudformation/            # CloudFormation nested stacks (8 templates)
+│   ├── sam/                       # SAM template and config
+│   ├── tests/                     # Unit and integration tests
+│   ├── docs/                      # Business logic & cost simulation
+│   ├── scripts/                   # Build/deploy scripts
+│   └── README.md
+├── secure-ml-transformation/      # Secure ML Data Transformation Pipeline
+│   ├── src/                       # Python Lambda source
+│   │   ├── common/                # Config, models, exceptions, clients
+│   │   ├── handlers/              # Job trigger, lineage, audit
+│   │   └── services/              # Glue, DataBrew, lineage, audit
+│   ├── glue/                      # PySpark ETL jobs
+│   │   └── jobs/                  # Tokenization, binning, encoding, anomaly
+│   ├── terraform/                 # Terraform infrastructure (6 modules)
+│   ├── cloudformation/            # CloudFormation nested stacks (6 templates)
+│   ├── sam/                       # SAM template and config
+│   ├── tests/                     # Unit and integration tests
+│   ├── docs/                      # Business logic & cost simulation
+│   ├── scripts/                   # Build/deploy scripts
+│   └── README.md
+└── ml-canary-deployment/          # ML Canary Deployment with Traffic Splitting
     ├── src/                       # Python Lambda source
-    │   ├── common/                # Config, models, exceptions
-    │   ├── handlers/              # API, ingestion, catalog, query
-    │   └── services/              # S3, KMS, Glue, Lake Formation, Athena
-    ├── glue/                      # PySpark ETL scripts
-    ├── terraform/                 # Terraform infrastructure (8 modules)
-    ├── cloudformation/            # CloudFormation nested stacks (8 templates)
+    │   ├── common/                # Config, models, exceptions, clients
+    │   ├── handlers/              # API, deployment, monitoring, rollback
+    │   └── services/              # Inference, deployment, traffic, monitoring
+    ├── sagemaker/                 # SageMaker training code
+    │   └── training/              # Train, inference, preprocessing
+    ├── terraform/                 # Terraform infrastructure (7 modules)
+    ├── cloudformation/            # CloudFormation nested stacks (7 templates)
     ├── sam/                       # SAM template and config
     ├── tests/                     # Unit and integration tests
     ├── docs/                      # Business logic & cost simulation
